@@ -102,6 +102,8 @@ CMD ["apache2-foreground"]
 
 FROM runtime AS builder
 
+ARG BOOTSTRAP_SYMFONY=0
+
 ENV COMPOSER_ALLOW_SUPERUSER=1 \
     COMPOSER_HOME=/tmp/composer
 
@@ -114,6 +116,10 @@ COPY backend/ /tmp/backend/
 
 RUN set -eux; \
     if [ -f /tmp/backend/composer.json ]; then \
+        if [ ! -f /tmp/backend/composer.lock ]; then \
+            echo "backend/composer.lock is required; update dependencies in development and commit the lock file." >&2; \
+            exit 1; \
+        fi; \
         mkdir -p /opt/app; \
         cp -a /tmp/backend/. /opt/app/; \
         cd /opt/app; \
@@ -121,11 +127,14 @@ RUN set -eux; \
             --prefer-dist \
             --no-interaction \
             --no-progress; \
-    else \
+    elif [ "$BOOTSTRAP_SYMFONY" = "1" ]; then \
         composer create-project symfony/skeleton:"8.1.*" /opt/app \
             --prefer-dist \
             --no-interaction \
             --no-progress; \
+    else \
+        echo "Production builds require committed Symfony source and backend/composer.lock." >&2; \
+        exit 1; \
     fi; \
     cd /opt/app; \
     composer validate --no-check-publish; \
