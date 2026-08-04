@@ -9,7 +9,7 @@ ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 WORKDIR /var/www/html
 
 RUN set -eux; \
-    savedAptMark="$(apt-mark showmanual)"; \
+    savedAptMark="$(apt-mark showmanual | grep -Ev '^(autoconf|dpkg-dev|file|g\+\+|gcc|libc6-dev|make|pkg-config|re2c)$' || true)"; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         libicu-dev \
@@ -130,6 +130,7 @@ RUN set -eux; \
     cd /opt/app; \
     composer validate --no-check-publish; \
     composer check-platform-reqs; \
+    composer audit --locked --no-interaction; \
     rm -rf /tmp/backend var/cache/* var/log/*
 
 FROM builder AS production-builder
@@ -165,7 +166,7 @@ ENV APP_ENV=prod \
 RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
 COPY docker/backend/php/prod.ini $PHP_INI_DIR/conf.d/99-app.ini
-COPY --from=production-builder --chown=www-data:www-data /opt/app-prod /var/www/html
+COPY --from=production-builder /opt/app-prod /var/www/html
 
 RUN mkdir -p var/cache var/log \
     && chown -R www-data:www-data var
