@@ -18,7 +18,12 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 EXPOSE 9000
-CMD ["php-fpm"]
+# -F: stay in the foreground. Without it php-fpm honors the config file's
+# daemonize setting (default yes); under Docker that risks the process
+# Compose/runc is tracking as "the container" exiting once php-fpm forks
+# to the background, which tears the container down out from under the
+# newly forked master/workers.
+CMD ["php-fpm", "-F"]
 
 FROM base AS dev
 
