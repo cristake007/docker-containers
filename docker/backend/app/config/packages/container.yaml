@@ -1,0 +1,9 @@
+framework:
+    secret: '%env(file:APP_SECRET_FILE)%'
+    trusted_proxies: '%env(TRUSTED_PROXIES)%'
+    trusted_headers:
+        - x-forwarded-for
+        - x-forwarded-proto
+        - x-forwarded-port
+        - x-forwarded-prefix
+    http_method_override: false
