@@ -80,6 +80,7 @@ RUN set -eux; \
         '<?php' \
         'declare(strict_types=1);' \
         'header("Content-Type: text/plain; charset=utf-8");' \
+        'header("Cache-Control: no-store");' \
         'header("X-Container-Health: php");' \
         'echo "ok\n";' \
         > /usr/local/share/container-healthz.php
@@ -92,13 +93,33 @@ php -r '
     $headers = @get_headers("http://127.0.0.1/healthz", true);
     $body = @file_get_contents("http://127.0.0.1/healthz");
     $marker = is_array($headers) ? ($headers["X-Container-Health"] ?? null) : null;
-    exit($body === "ok\n" && $marker === "php" ? 0 : 1);
+
+    if ($body !== "ok\n" || $marker !== "php") {
+        exit(1);
+    }
+
+    if (getenv("HEALTHCHECK_REQUIRE_READY") !== "1") {
+        exit(0);
+    }
+
+    $readyHeaders = @get_headers("http://127.0.0.1/readyz", true);
+    $readyBody = @file_get_contents("http://127.0.0.1/readyz");
+    $readyMarker = is_array($readyHeaders) ? ($readyHeaders["X-Application-Readiness"] ?? null) : null;
+
+    exit($readyBody === "ready\n" && $readyMarker === "database" ? 0 : 1);
 '
 SH
 
 RUN cat > /usr/local/bin/app-entrypoint <<'SH'
 #!/bin/sh
 set -eu
+
+for secretPath in "${APP_SECRET_FILE:-}" "${DATABASE_PASSWORD_FILE:-}"; do
+    if [ -z "$secretPath" ] || [ ! -r "$secretPath" ] || [ ! -s "$secretPath" ]; then
+        echo "Required runtime secret is missing or unreadable." >&2
+        exit 1
+    fi
+done
 
 if [ "${APP_ENV:-prod}" = "dev" ]; then
     if [ ! -f composer.json ]; then
@@ -142,14 +163,29 @@ FROM runtime AS builder
 ARG BOOTSTRAP_SYMFONY=0
 
 ENV COMPOSER_ALLOW_SUPERUSER=1 \
-    COMPOSER_HOME=/tmp/composer
+    COMPOSER_HOME=/tmp/composer \
+    APP_SECRET_FILE=/tmp/build-app-secret \
+    DATABASE_HOST=127.0.0.1 \
+    DATABASE_PORT=5432 \
+    DATABASE_NAME=build \
+    DATABASE_USER=build \
+    DATABASE_PASSWORD_FILE=/tmp/build-database-password \
+    DATABASE_SERVER_VERSION=18 \
+    TRUSTED_PROXIES=127.0.0.1 \
+    CORS_ALLOW_ORIGINS= \
+    CORS_ALLOW_HEADERS=Authorization,Content-Type \
+    CORS_ALLOW_CREDENTIALS=0 \
+    CORS_MAX_AGE=600
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git unzip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && printf '%s' 'build-only-app-secret' > /tmp/build-app-secret \
+    && printf '%s' 'build-only-database-password' > /tmp/build-database-password
 
 COPY --from=composer:2.10.2 /usr/bin/composer /usr/local/bin/composer
 COPY backend/ /tmp/backend/
+COPY docker/backend/app/ /opt/container-app/
 
 RUN set -eux; \
     if [ -f /tmp/backend/composer.json ]; then \
@@ -169,16 +205,41 @@ RUN set -eux; \
             --prefer-dist \
             --no-interaction \
             --no-progress; \
+        cd /opt/app; \
+        composer require \
+            symfony/orm-pack \
+            doctrine/doctrine-migrations-bundle \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress; \
+        cp -a /opt/container-app/. /opt/app/; \
     else \
         echo "Production builds require committed Symfony source and backend/composer.lock." >&2; \
         exit 1; \
     fi; \
     cd /opt/app; \
+    composer show --locked doctrine/doctrine-bundle >/dev/null; \
+    composer show --locked doctrine/doctrine-migrations-bundle >/dev/null; \
+    for requiredFile in \
+        config/packages/container.yaml \
+        config/packages/doctrine.yaml \
+        config/packages/doctrine_migrations.yaml \
+        migrations/Version20260804000000.php \
+        src/Controller/ReadinessController.php \
+        src/EventSubscriber/CorsSubscriber.php; \
+    do \
+        if [ ! -f "$requiredFile" ]; then \
+            echo "Required application integration file is missing: $requiredFile" >&2; \
+            exit 1; \
+        fi; \
+    done; \
     composer validate --no-check-publish; \
     composer check-platform-reqs; \
     composer audit --locked --no-interaction; \
+    php bin/console lint:container; \
+    php bin/console lint:yaml config; \
     sha256sum composer.lock | cut -d ' ' -f 1 > vendor/.composer-lock.sha256; \
-    rm -rf /tmp/backend var/cache/* var/log/*
+    rm -rf /tmp/backend /opt/container-app var/cache/* var/log/*
 
 FROM builder AS production-builder
 
