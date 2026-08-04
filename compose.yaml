@@ -1,0 +1,26 @@
+name: symfony-backend
+
+services:
+  backend:
+    image: symfony-backend:prod
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+      target: prod
+    environment:
+      APP_ENV: prod
+      APP_DEBUG: "0"
+    ports:
+      - "127.0.0.1:8000:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "php bin/console about --env=$$APP_ENV >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - application
+
+networks:
+  application:
