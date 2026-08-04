@@ -80,11 +80,15 @@ $DEV_COMPOSE exec -T backend sh -lc '
     command -v git >/dev/null
     composer validate --no-check-publish
     composer check-platform-reqs
+    composer audit --locked --no-interaction
     php bin/console about --env=dev >/dev/null
 
+    apache2ctl configtest
     apache2ctl -M 2>/dev/null | grep -q php_module
     apache2ctl -M 2>/dev/null | grep -q rewrite_module
     apache2ctl -M 2>/dev/null | grep -q headers_module
+
+    php -r '\''$body = @file_get_contents("http://127.0.0.1/healthz"); exit($body === "ok\n" ? 0 : 1);'\''
 '
 
 $DEV_COMPOSE down -v --remove-orphans
@@ -104,6 +108,7 @@ $PROD_COMPOSE exec -T backend sh -lc '
     test -f composer.json
     test -f composer.lock
     test -f vendor/autoload.php
+    test -d var/cache/prod
 
     php -r '\''exit(ini_get("display_errors") === "" ? 0 : 1);'\''
     php -r '\''exit(ini_get("expose_php") === "" ? 0 : 1);'\''
@@ -111,22 +116,84 @@ $PROD_COMPOSE exec -T backend sh -lc '
     php -r '\''exit(ini_get("opcache.validate_timestamps") === "0" ? 0 : 1);'\''
     php -r '\''foreach (["intl", "pdo_pgsql", "zip"] as $extension) { if (!extension_loaded($extension)) { fwrite(STDERR, "$extension is missing\n"); exit(1); } }'\''
 
-    if command -v composer >/dev/null 2>&1; then
-        echo "Composer must not be present in the production image." >&2
-        exit 1
-    fi
+    for command in composer git cc gcc g++ make autoconf; do
+        if command -v "$command" >/dev/null 2>&1; then
+            echo "$command must not be present in the production image." >&2
+            exit 1
+        fi
+    done
 
-    if command -v git >/dev/null 2>&1; then
-        echo "Git must not be present in the production image." >&2
-        exit 1
-    fi
+    for package in autoconf dpkg-dev g++ gcc libc6-dev libicu-dev libpq-dev libzip-dev make pkg-config re2c; do
+        if dpkg-query -W -f="${db:Status-Abbrev}" "$package" 2>/dev/null | grep -q "^ii"; then
+            echo "$package must not be installed in the production image." >&2
+            exit 1
+        fi
+    done
 
-    php bin/console about --env=prod >/dev/null
+    php -r '\''
+        $lock = json_decode(file_get_contents("composer.lock"), true, 512, JSON_THROW_ON_ERROR);
+        $installed = require "vendor/composer/installed.php";
+        $versions = $installed["versions"] ?? $installed[0]["versions"] ?? [];
+        foreach ($lock["packages-dev"] ?? [] as $package) {
+            if (isset($versions[$package["name"]])) {
+                fwrite(STDERR, "Development package installed in production: {$package["name"]}\n");
+                exit(1);
+            }
+        }
+    '\''
+
+    test "$(stat -c "%U" composer.json)" = "root"
+    test "$(stat -c "%U" public/index.php)" = "root"
+    test "$(stat -c "%U" var/cache)" = "www-data"
+    su -s /bin/sh www-data -c '\''test ! -w composer.json && test ! -w public/index.php'\''
     su -s /bin/sh www-data -c '\''touch var/cache/container-smoke-test && rm var/cache/container-smoke-test'\''
 
+    php bin/console about --env=prod >/dev/null
+
+    apache2ctl configtest
     apache2ctl -M 2>/dev/null | grep -q php_module
     apache2ctl -M 2>/dev/null | grep -q rewrite_module
     apache2ctl -M 2>/dev/null | grep -q headers_module
+    grep -qx "ServerTokens Prod" /etc/apache2/conf-enabled/container-hardening.conf
+    grep -qx "ServerSignature Off" /etc/apache2/conf-enabled/container-hardening.conf
+    grep -qx "TraceEnable Off" /etc/apache2/conf-enabled/container-hardening.conf
+
+    php -r '\''
+        $headers = get_headers("http://127.0.0.1/healthz", true);
+        if (!is_array($headers) || !str_contains($headers[0], "200")) {
+            fwrite(STDERR, "Health endpoint did not return HTTP 200.\n");
+            exit(1);
+        }
+        foreach ($headers as $name => $value) {
+            if (is_string($name) && strcasecmp($name, "Server") === 0) {
+                $server = is_array($value) ? end($value) : $value;
+                if ($server !== "Apache") {
+                    fwrite(STDERR, "Apache version information is exposed.\n");
+                    exit(1);
+                }
+            }
+        }
+    '\''
+
+    php -r '\''
+        $headers = get_headers("http://127.0.0.1/index.php", true);
+        foreach ($headers ?: [] as $name => $value) {
+            if (is_string($name) && strcasecmp($name, "X-Powered-By") === 0) {
+                fwrite(STDERR, "X-Powered-By must not be exposed in production.\n");
+                exit(1);
+            }
+        }
+    '\''
+
+    php -r '\''
+        $context = stream_context_create(["http" => ["method" => "TRACE", "ignore_errors" => true]]);
+        @file_get_contents("http://127.0.0.1/", false, $context);
+        $status = $http_response_header[0] ?? "";
+        if (!str_contains($status, "405")) {
+            fwrite(STDERR, "Apache TRACE requests are not disabled.\n");
+            exit(1);
+        }
+    '\''
 '
 
 production_container="$($PROD_COMPOSE ps -q backend)"
@@ -135,5 +202,11 @@ mount_count="$(docker inspect --format '{{len .Mounts}}' "$production_container"
 
 host_ip="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostIp}}' "$production_container")"
 [ "$host_ip" = "127.0.0.1" ]
+
+security_options="$(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "$production_container")"
+printf '%s' "$security_options" | grep -q 'no-new-privileges'
+
+init_enabled="$(docker inspect --format '{{.HostConfig.Init}}' "$production_container")"
+[ "$init_enabled" = "true" ]
 
 printf '%s\n' 'Development and production smoke tests passed.'
