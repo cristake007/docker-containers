@@ -51,6 +51,10 @@ wait_for_http() {
 
 $COMPOSE up -d --build
 
+# Schema doesn't exist until migrations run -- this repo deliberately never
+# auto-migrates on container boot (see README), so the test has to do it.
+$COMPOSE exec -T backend php bin/console doctrine:migrations:migrate --no-interaction
+
 # A throwaway nginx stitches backend (fastcgi) + frontend (vite) into one
 # origin, exactly like deploy/nginx/app.dev.conf.example, so cookies and
 # CORS behave the same way they would for a real developer.
@@ -78,6 +82,11 @@ docker run -d --name stack-smoke-nginx --network host \
     nginx:alpine >/dev/null
 
 cleanup() {
+    exit_code=$?
+    if [ "$exit_code" -ne 0 ]; then
+        echo "--- stack-smoke.sh failing (exit $exit_code): backend logs ---" >&2
+        $COMPOSE logs backend >&2 || true
+    fi
     docker rm -f stack-smoke-nginx >/dev/null 2>&1 || true
     rm -f "$NGINX_CONF"
     $COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
