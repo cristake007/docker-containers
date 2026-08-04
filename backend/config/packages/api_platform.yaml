@@ -1,0 +1,11 @@
+api_platform:
+    title: Task Manager API
+    version: 1.0.0
+    defaults:
+        stateless: true
+        cache_headers:
+            vary: ['Content-Type', 'Authorization', 'Origin', 'Cookie']
+    graphql:
+        # The browsable GraphiQL UI is a debugging aid: keep it out of prod.
+        graphiql:
+            enabled: '%kernel.debug%'

@@ -1,0 +1,40 @@
+# Example host-nginx server block for local development.
+#
+# This repo intentionally runs no nginx/Apache inside any container --
+# PHP-FPM only speaks FastCGI, and the Vite dev server only speaks HTTP on
+# its own port. nginx running on the host is what stitches the two into one
+# origin, which is what makes cookie-based auth and CORS work without any
+# extra configuration.
+#
+# Usage: copy to your nginx sites-available (e.g.
+# /etc/nginx/sites-available/tasks.dev), symlink into sites-enabled, adjust
+# server_name if needed, then reload nginx.
+#
+# Prerequisite: `docker compose up` running, which publishes:
+#   - backend (dev, PHP-FPM)  -> 127.0.0.1:9000
+#   - frontend (dev, Vite)    -> 127.0.0.1:5173
+
+server {
+    listen 80;
+    server_name tasks.localhost;
+
+    # React dev server (Vite) -- includes the HMR websocket upgrade.
+    location / {
+        proxy_pass http://127.0.0.1:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+
+    # Symfony API (REST registration/login + GraphQL), served by PHP-FPM in
+    # the backend container. The application files live inside that
+    # container, not on this host, so SCRIPT_FILENAME is fixed rather than
+    # derived from $document_root/try_files.
+    location /api {
+        include fastcgi_params;
+        fastcgi_pass 127.0.0.1:9000;
+        fastcgi_param SCRIPT_FILENAME /var/www/html/public/index.php;
+        fastcgi_param HTTPS $https if_not_empty;
+    }
+}
