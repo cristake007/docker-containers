@@ -15,7 +15,11 @@ wait_for_fpm() {
     port="$($compose_command port backend 9000 | cut -d: -f2)"
     attempts=0
 
-    while [ "$attempts" -lt 30 ]; do
+    # The entrypoint boots a cold Symfony console (no compiled cache yet in
+    # a fresh volume) and generates a JWT keypair before php-fpm even
+    # starts listening; on a loaded CI runner that can take a while, so
+    # this budget is generous on purpose.
+    while [ "$attempts" -lt 90 ]; do
         if nc -z 127.0.0.1 "$port" 2>/dev/null; then
             return 0
         fi
@@ -62,8 +66,14 @@ $DEV_COMPOSE config --quiet
 $PROD_COMPOSE config --quiet
 
 assert_prod_rejects_placeholder_secrets() {
-    output="$(APP_SECRET=dev-insecure-app-secret-do-not-use-in-prod $PROD_COMPOSE up backend 2>&1 || true)"
-    $PROD_COMPOSE rm -f backend >/dev/null 2>&1 || true
+    # Detached, not attached: foreground `up` mixes in Compose's own
+    # lifecycle output and its exit code doesn't cleanly reflect just the
+    # container's, making this fragile. Start it, give the entrypoint's
+    # guard a moment to run and exit, then read the logs back.
+    APP_SECRET=dev-insecure-app-secret-do-not-use-in-prod $PROD_COMPOSE up -d --no-deps backend >/dev/null 2>&1 || true
+    sleep 5
+    output="$($PROD_COMPOSE logs backend 2>&1)"
+    $PROD_COMPOSE rm -sf backend >/dev/null 2>&1 || true
     case "$output" in
         *"Refusing to start"*) ;;
         *)

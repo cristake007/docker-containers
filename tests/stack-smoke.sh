@@ -24,10 +24,12 @@ wait_for_http() {
     # Waits for the *expected* status, not just any response: nginx itself
     # comes up almost instantly and will happily return 502 while the
     # fastcgi backend behind it is still booting, which is not "ready".
+    # The backend boots a cold Symfony console and generates a JWT keypair
+    # before it's reachable at all, so this budget is generous on purpose.
     url="$1"
     expected_code="$2"
     attempts=0
-    while [ "$attempts" -lt 60 ]; do
+    while [ "$attempts" -lt 90 ]; do
         code="$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)"
         if [ "$code" = "$expected_code" ]; then
             return 0
@@ -36,6 +38,7 @@ wait_for_http() {
         sleep 1
     done
     echo "Timed out waiting for $url to return $expected_code (last saw $code)" >&2
+    $COMPOSE logs backend >&2 || true
     return 1
 }
 
