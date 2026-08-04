@@ -133,7 +133,31 @@ docker exec -u postgres "$backup_container" sh -lc '
     test -r /run/app-secrets/database_password
 '
 
-docker top "$backup_container" -eo user,args | grep -Eq '^postgres[[:space:]].*(backup-entrypoint backup-loop|sleep)'
+docker exec "$backup_container" sh -lc '
+    set -eu
+
+    postgres_uid="$(id -u postgres)"
+    scheduler_found=0
+
+    for process_directory in /proc/[0-9]*; do
+        [ -r "$process_directory/status" ] || continue
+        [ -r "$process_directory/cmdline" ] || continue
+
+        command_line="$(tr "\000" " " < "$process_directory/cmdline" 2>/dev/null || true)"
+        case "$command_line" in
+            *"backup-entrypoint backup-loop"*)
+                process_uid="$(awk "/^Uid:/ { print \$2; exit }" "$process_directory/status")"
+                if [ "$process_uid" != "$postgres_uid" ]; then
+                    echo "Backup scheduler is not running as postgres." >&2
+                    exit 1
+                fi
+                scheduler_found=1
+                ;;
+        esac
+    done
+
+    test "$scheduler_found" = "1"
+'
 
 set_phase 'Database probe insertion'
 $PROD_COMPOSE exec -T database psql \
