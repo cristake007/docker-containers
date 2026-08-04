@@ -112,13 +112,8 @@ $PROD_COMPOSE config --quiet
 $DEV_COMPOSE config | grep -q 'target: dev'
 $PROD_COMPOSE config | grep -q 'target: prod'
 $DEV_COMPOSE config | grep -q '/var/www/html'
-$DEV_COMPOSE config | grep -q '127.0.0.1:5432'
 $PROD_COMPOSE config | grep -q 'condition: service_completed_successfully'
 $PROD_COMPOSE config | grep -q '/var/lib/postgresql'
-if $PROD_COMPOSE config | grep -q '127.0.0.1:5432'; then
-    echo "Production unexpectedly publishes PostgreSQL." >&2
-    exit 1
-fi
 if $PROD_COMPOSE config | grep -q '/var/www/html'; then
     echo "Production Compose configuration unexpectedly contains the development source mount." >&2
     exit 1
@@ -186,6 +181,11 @@ $DEV_COMPOSE exec -T backend sh -lc '
     apache2ctl -M 2>/dev/null | grep -q rewrite_module
     apache2ctl -M 2>/dev/null | grep -q headers_module
 '
+
+development_database_container="$($DEV_COMPOSE ps -q database)"
+test -n "$development_database_container"
+development_database_binding="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostIp}}:{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$development_database_container")"
+test "$development_database_binding" = "127.0.0.1:5432"
 
 $DEV_COMPOSE down -v --remove-orphans
 
