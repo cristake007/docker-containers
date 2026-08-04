@@ -9,6 +9,7 @@ services:
       target: prod
       args:
         PHP_VERSION: ${PHP_VERSION:-8.5.9}
+        BOOTSTRAP_SYMFONY: "0"
     environment:
       APP_ENV: prod
       APP_DEBUG: "0"
