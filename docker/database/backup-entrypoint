@@ -12,8 +12,39 @@ BACKUP_INTERVAL_SECONDS="${BACKUP_INTERVAL_SECONDS:-86400}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_PREFIX="${BACKUP_PREFIX:-app}"
 
+stage_database_secret() {
+    source_path="$DATABASE_PASSWORD_FILE"
+    target_directory=/run/app-secrets
+    target_path="$target_directory/database_password"
+    temporary_path="$target_path.tmp"
+
+    if [ ! -r "$source_path" ] || [ ! -s "$source_path" ]; then
+        echo "Database password secret is missing or unreadable." >&2
+        exit 1
+    fi
+
+    install -d -o root -g postgres -m 0750 "$target_directory"
+    rm -f "$temporary_path"
+    cat "$source_path" > "$temporary_path"
+    chown root:postgres "$temporary_path"
+    chmod 0640 "$temporary_path"
+    mv -f "$temporary_path" "$target_path"
+
+    export DATABASE_PASSWORD_FILE="$target_path"
+    exec gosu postgres "$0" "$@"
+}
+
+if [ "$(id -u)" -eq 0 ]; then
+    stage_database_secret "$@"
+fi
+
+if [ "$(id -un)" != "postgres" ]; then
+    echo "Backup commands must run as the postgres user." >&2
+    exit 1
+fi
+
 if [ ! -r "$DATABASE_PASSWORD_FILE" ] || [ ! -s "$DATABASE_PASSWORD_FILE" ]; then
-    echo "Database password secret is missing or unreadable." >&2
+    echo "Staged database password secret is missing or unreadable." >&2
     exit 1
 fi
 
@@ -22,7 +53,7 @@ PGPASSWORD="$(cat "$DATABASE_PASSWORD_FILE")"
 export PGCONNECT_TIMEOUT=5
 
 backup_once() {
-    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    timestamp="$(date -u +%Y%m%dT%H%M%S%NZ)"
     temporary_file="/backups/.${BACKUP_PREFIX}-${timestamp}.dump.tmp"
     final_file="/backups/${BACKUP_PREFIX}-${timestamp}.dump"
 
