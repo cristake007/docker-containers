@@ -38,7 +38,14 @@ wait_for_http() {
         sleep 1
     done
     echo "Timed out waiting for $url to return $expected_code (last saw $code)" >&2
+    echo "--- backend logs ---" >&2
     $COMPOSE logs backend >&2 || true
+    echo "--- nginx logs ---" >&2
+    docker logs stack-smoke-nginx >&2 || true
+    echo "--- nginx config ---" >&2
+    cat "$NGINX_CONF" >&2 || true
+    echo "--- direct TCP check to backend port (bypassing nginx) ---" >&2
+    nc -zv 127.0.0.1 "$BACKEND_PORT" 2>&1 >&2 || true
     return 1
 }
 
