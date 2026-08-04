@@ -1,0 +1,6 @@
+.env.local
+.env.*.local
+/backend/vendor/
+/backend/var/
+/.idea/
+/.vscode/
