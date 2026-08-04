@@ -6,9 +6,9 @@ FROM ${POSTGRES_IMAGE}
 COPY docker/database/backup-entrypoint /usr/local/bin/backup-entrypoint
 
 RUN chmod 0755 /usr/local/bin/backup-entrypoint \
-    && install -d -o postgres -g postgres -m 0700 /backups
+    && install -d -o postgres -g postgres -m 0700 /backups \
+    && command -v gosu >/dev/null
 
-USER postgres
 WORKDIR /backups
 
 ENTRYPOINT ["backup-entrypoint"]
