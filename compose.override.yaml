@@ -1,0 +1,16 @@
+services:
+  backend:
+    image: symfony-backend:dev
+    build:
+      target: dev
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+    volumes:
+      - ./backend:/var/www/html
+      - backend_vendor:/var/www/html/vendor
+      - backend_var:/var/www/html/var
+
+volumes:
+  backend_vendor:
+  backend_var:
