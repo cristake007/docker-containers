@@ -59,7 +59,7 @@ jobs:
           docker compose version
 
       - name: Run platform smoke tests
-        run: sh -x tests/backend-smoke.sh
+        run: sh tests/backend-smoke.sh
 
       - name: Run platform lifecycle tests
         run: sh tests/backend-lifecycle.sh
