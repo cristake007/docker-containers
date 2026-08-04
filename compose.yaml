@@ -1,18 +1,102 @@
 name: symfony-backend
 
+x-backend-build: &backend-build
+  context: .
+  dockerfile: docker/backend/Dockerfile
+  target: prod
+  args:
+    PHP_VERSION: ${PHP_VERSION:-8.5.9}
+    BOOTSTRAP_SYMFONY: "0"
+
+x-backend-environment: &backend-environment
+  APP_ENV: prod
+  APP_DEBUG: "0"
+  APP_SECRET_FILE: /run/secrets/app_secret
+  DATABASE_HOST: database
+  DATABASE_PORT: "5432"
+  DATABASE_NAME: ${POSTGRES_DB:-app}
+  DATABASE_USER: ${POSTGRES_USER:-app}
+  DATABASE_PASSWORD_FILE: /run/secrets/database_password
+  DATABASE_SERVER_VERSION: "18"
+  TRUSTED_PROXIES: ${TRUSTED_PROXIES:-private_ranges}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-}
+  CORS_ALLOW_HEADERS: ${CORS_ALLOW_HEADERS:-Authorization,Content-Type}
+  CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-0}
+  CORS_MAX_AGE: ${CORS_MAX_AGE:-600}
+  HEALTHCHECK_REQUIRE_READY: "1"
+
+x-backend-secrets: &backend-secrets
+  - app_secret
+  - database_password
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
+  database:
+    image: ${POSTGRES_IMAGE:-postgres:18.4-trixie}
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --data-checksums
+    secrets:
+      - database_password
+    volumes:
+      - database_data:/var/lib/postgresql
+    shm_size: 128mb
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready --host=127.0.0.1 --username=\"$${POSTGRES_USER}\" --dbname=\"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+      start_interval: 2s
+    logging: *default-logging
+    networks:
+      - database
+
+  migrate:
+    image: symfony-backend:prod
+    build: *backend-build
+    command:
+      - php
+      - bin/console
+      - doctrine:migrations:migrate
+      - --no-interaction
+    environment: *backend-environment
+    secrets: *backend-secrets
+    depends_on:
+      database:
+        condition: service_healthy
+    init: true
+    restart: "no"
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks:
+      - database
+
   backend:
     image: symfony-backend:prod
-    build:
-      context: .
-      dockerfile: docker/backend/Dockerfile
-      target: prod
-      args:
-        PHP_VERSION: ${PHP_VERSION:-8.5.9}
-        BOOTSTRAP_SYMFONY: "0"
-    environment:
-      APP_ENV: prod
-      APP_DEBUG: "0"
+    build: *backend-build
+    environment: *backend-environment
+    secrets: *backend-secrets
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:8000:80"
     init: true
@@ -25,15 +109,61 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
       start_interval: 2s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+    logging: *default-logging
     networks:
       - application
+      - database
+
+  database-backup:
+    image: symfony-database-backup:prod
+    build:
+      context: .
+      dockerfile: docker/database/Dockerfile
+      args:
+        POSTGRES_IMAGE: ${POSTGRES_IMAGE:-postgres:18.4-trixie}
+    environment:
+      DATABASE_HOST: database
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: ${POSTGRES_DB:-app}
+      DATABASE_USER: ${POSTGRES_USER:-app}
+      DATABASE_PASSWORD_FILE: /run/secrets/database_password
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_PREFIX: ${BACKUP_PREFIX:-app}
+    secrets:
+      - database_password
+    volumes:
+      - database_backups:/backups
+    depends_on:
+      database:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    logging: *default-logging
+    networks:
+      - database
+
+secrets:
+  app_secret:
+    file: ${APP_SECRET_SECRET_FILE:-./secrets/app_secret}
+  database_password:
+    file: ${DATABASE_PASSWORD_SECRET_FILE:-./secrets/database_password}
+
+volumes:
+  database_data:
+  database_backups:
 
 networks:
   application:
+  database:
+    internal: true
