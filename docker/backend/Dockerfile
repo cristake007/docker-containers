@@ -45,25 +45,10 @@ RUN cat > /usr/local/bin/app-entrypoint <<'SH'
 #!/bin/sh
 set -eu
 
-if [ "${APP_ENV:-prod}" = "dev" ]; then
-    if [ ! -f composer.json ]; then
-        echo "Creating Symfony 8.1 skeleton..."
-        rm -rf /tmp/symfony-skeleton
-        composer create-project symfony/skeleton:"8.1.*" /tmp/symfony-skeleton \
-            --no-install \
-            --no-interaction \
-            --prefer-dist
-        cp -a /tmp/symfony-skeleton/. /var/www/html/
-        rm -rf /tmp/symfony-skeleton
-        rm -f /var/www/html/.gitkeep
-    fi
-
-    if [ ! -f vendor/autoload.php ] || [ composer.lock -nt vendor/autoload.php ]; then
-        composer install \
-            --prefer-dist \
-            --no-interaction \
-            --no-progress
-    fi
+if [ "${APP_ENV:-prod}" = "dev" ] && [ ! -f composer.json ]; then
+    echo "Initializing Symfony backend from the prepared image..."
+    cp -a /opt/app-template/. /var/www/html/
+    rm -f /var/www/html/.gitkeep
 fi
 
 mkdir -p var/cache var/log
@@ -74,6 +59,26 @@ SH
 
 ENTRYPOINT ["sh", "/usr/local/bin/app-entrypoint"]
 CMD ["apache2-foreground"]
+
+FROM base AS application
+
+COPY backend/ /tmp/backend/
+
+RUN set -eux; \
+    if [ -f /tmp/backend/composer.json ]; then \
+        mkdir -p /opt/app; \
+        cp -a /tmp/backend/. /opt/app/; \
+        cd /opt/app; \
+        composer install \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress; \
+    else \
+        composer create-project symfony/skeleton:"8.1.*" /opt/app \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress; \
+    fi
 
 FROM base AS dev
 
@@ -86,6 +91,8 @@ RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini" \
         'opcache.validate_timestamps=1' \
         'opcache.revalidate_freq=0' \
         > "$PHP_INI_DIR/conf.d/app-opcache.ini"
+
+COPY --from=application /opt/app /opt/app-template
 
 FROM base AS prod
 
@@ -101,7 +108,7 @@ RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
         'opcache.max_accelerated_files=20000' \
         > "$PHP_INI_DIR/conf.d/app-opcache.ini"
 
-COPY backend/ ./
+COPY --from=application /opt/app ./
 
 RUN composer install \
         --no-dev \
