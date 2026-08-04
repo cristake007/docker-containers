@@ -8,7 +8,7 @@ Backend-only Docker setup using one multi-stage Dockerfile, one production-safe 
 docker compose up --build -d
 ```
 
-Docker automatically merges `compose.override.yaml`, builds the `dev` target, mounts `./backend`, and creates a Symfony 8.1 skeleton there on the first start.
+Docker automatically merges `compose.override.yaml` and builds the `dev` target. During the image build, Composer prepares a Symfony 8.1 skeleton. On the first container start, that prepared application is copied into the bind-mounted `./backend` directory without accessing Packagist at runtime.
 
 Check the container:
 
@@ -27,13 +27,13 @@ docker compose down
 
 ## Production
 
-After the generated Symfony source and Composer lock files are committed, build only the production-safe base configuration:
+After the generated Symfony source and Composer lock file are committed, build only the production-safe base configuration:
 
 ```bash
 docker compose -f compose.yaml up --build -d
 ```
 
-This builds the `prod` target without the source bind mount or development dependency volumes.
+This builds the `prod` target without the development source bind mount.
 
 ## Future frontend container
 
