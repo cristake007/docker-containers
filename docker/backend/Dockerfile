@@ -70,20 +70,30 @@ RUN set -eux; \
         '    FallbackResource /index.php' \
         '</Directory>' \
         '' \
-        'Alias /healthz /usr/local/share/container-healthz' \
+        'Alias /healthz /usr/local/share/container-healthz.php' \
         '<Directory /usr/local/share>' \
         '    Require all granted' \
         '</Directory>' \
         > /etc/apache2/conf-available/symfony.conf; \
     a2enconf symfony zz-container-hardening; \
-    printf 'ok\n' > /usr/local/share/container-healthz
+    printf '%s\n' \
+        '<?php' \
+        'declare(strict_types=1);' \
+        'header("Content-Type: text/plain; charset=utf-8");' \
+        'header("X-Container-Health: php");' \
+        'echo "ok\n";' \
+        > /usr/local/share/container-healthz.php
 
 RUN cat > /usr/local/bin/container-healthcheck <<'SH'
 #!/bin/sh
 set -eu
 
-php -r '$body = @file_get_contents("http://127.0.0.1/healthz"); exit($body === "ok\n" ? 0 : 1);'
-php bin/console about --env="${APP_ENV:-prod}" >/dev/null
+php -r '
+    $headers = @get_headers("http://127.0.0.1/healthz", true);
+    $body = @file_get_contents("http://127.0.0.1/healthz");
+    $marker = is_array($headers) ? ($headers["X-Container-Health"] ?? null) : null;
+    exit($body === "ok\n" && $marker === "php" ? 0 : 1);
+'
 SH
 
 RUN cat > /usr/local/bin/app-entrypoint <<'SH'
@@ -99,6 +109,20 @@ if [ "${APP_ENV:-prod}" = "dev" ]; then
         echo "Restoring development dependencies from the prepared image..."
         rm -rf vendor
         cp -a /opt/app-template/vendor ./vendor
+    fi
+
+    if [ -f composer.lock ]; then
+        lockHash="$(sha256sum composer.lock | cut -d ' ' -f 1)"
+        installedHash="$(cat vendor/.composer-lock.sha256 2>/dev/null || true)"
+
+        if [ "$lockHash" != "$installedHash" ]; then
+            echo "Synchronizing development dependencies with composer.lock..."
+            composer install \
+                --prefer-dist \
+                --no-interaction \
+                --no-progress
+            printf '%s\n' "$lockHash" > vendor/.composer-lock.sha256
+        fi
     fi
 fi
 
@@ -153,6 +177,7 @@ RUN set -eux; \
     composer validate --no-check-publish; \
     composer check-platform-reqs; \
     composer audit --locked --no-interaction; \
+    sha256sum composer.lock | cut -d ' ' -f 1 > vendor/.composer-lock.sha256; \
     rm -rf /tmp/backend var/cache/* var/log/*
 
 FROM builder AS production-builder
@@ -166,6 +191,7 @@ RUN set -eux; \
         --no-interaction \
         --no-progress \
         --classmap-authoritative; \
+    rm -f vendor/.composer-lock.sha256; \
     APP_ENV=prod APP_DEBUG=0 php bin/console cache:clear --no-debug; \
     APP_ENV=prod APP_DEBUG=0 php bin/console cache:warmup --no-debug
 
