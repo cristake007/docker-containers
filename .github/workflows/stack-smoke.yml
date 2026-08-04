@@ -1,0 +1,38 @@
+name: Stack smoke test
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker/**"
+      - "compose.yaml"
+      - "compose.override.yaml"
+      - ".env"
+      - "tests/stack-smoke.sh"
+      - ".github/workflows/stack-smoke.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docker/**"
+      - "compose.yaml"
+      - "compose.override.yaml"
+      - ".env"
+      - "tests/stack-smoke.sh"
+      - ".github/workflows/stack-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v6
+      - run: sh tests/stack-smoke.sh

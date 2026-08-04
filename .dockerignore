@@ -4,3 +4,5 @@
 .vscode
 backend/vendor
 backend/var
+frontend/node_modules
+frontend/dist
