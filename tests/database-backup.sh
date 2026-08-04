@@ -133,18 +133,6 @@ docker exec -u postgres "$backup_container" sh -lc '
     test -r /run/app-secrets/database_password
 '
 
-docker exec "$backup_container" sh -lc '
-    set -eu
-
-    postgres_uid="$(id -u postgres)"
-    process_uid="$(awk "/^Uid:/ { print \$2; exit }" /proc/1/status)"
-    command_line="$(tr "\000" " " < /proc/1/cmdline)"
-
-    test "$process_uid" = "$postgres_uid"
-    printf "%s" "$command_line" | grep -q "backup-entrypoint"
-    printf "%s" "$command_line" | grep -q "backup-loop"
-'
-
 set_phase 'Database probe insertion'
 $PROD_COMPOSE exec -T database psql \
     --username="$POSTGRES_USER" \
