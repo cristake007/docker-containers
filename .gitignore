@@ -2,5 +2,9 @@
 .env.*.local
 /backend/vendor/
 /backend/var/
+/secrets/*
+!/secrets/.gitignore
+/.test-runtime/
+/backups/
 /.idea/
 /.vscode/
