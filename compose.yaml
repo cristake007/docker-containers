@@ -9,31 +9,9 @@ services:
       target: prod
       args:
         PHP_VERSION: ${PHP_VERSION:-8.5.9}
-        BOOTSTRAP_SYMFONY: "0"
     environment:
       APP_ENV: prod
       APP_DEBUG: "0"
     ports:
       - "127.0.0.1:8000:80"
-    init: true
     restart: unless-stopped
-    stop_grace_period: 30s
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD", "container-healthcheck"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-      start_interval: 2s
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-    networks:
-      - application
-
-networks:
-  application:
