@@ -1,71 +1,162 @@
 # syntax=docker/dockerfile:1.7
 
-FROM php:8.5-apache-bookworm AS base
+ARG PHP_VERSION=8.5.9
 
-ENV COMPOSER_ALLOW_SUPERUSER=1 \
-    COMPOSER_HOME=/tmp/composer \
-    APACHE_DOCUMENT_ROOT=/var/www/html/public
+FROM php:${PHP_VERSION}-apache-bookworm AS runtime
+
+ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 
 WORKDIR /var/www/html
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        git \
-        unzip \
+RUN set -eux; \
+    savedAptMark="$(apt-mark showmanual)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
         libicu-dev \
         libpq-dev \
         libzip-dev \
-    && docker-php-ext-install -j"$(nproc)" \
+    ; \
+    docker-php-ext-install -j "$(nproc)" \
         intl \
         pdo_pgsql \
         zip \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    ; \
+    extensionDir="$(php -r 'echo ini_get("extension_dir");')"; \
+    apt-mark auto '.*' > /dev/null; \
+    apt-mark manual $savedAptMark; \
+    ldd "$extensionDir"/*.so \
+        | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next } gsub("^/(usr/)?", "", so); print so }' \
+        | sort -u \
+        | xargs -r dpkg-query --search \
+        | cut -d: -f1 \
+        | sort -u \
+        | xargs -r apt-mark manual; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false \
+        autoconf \
+        dpkg-dev \
+        file \
+        g++ \
+        gcc \
+        libc6-dev \
+        libicu-dev \
+        libpq-dev \
+        libzip-dev \
+        make \
+        pkg-config \
+        re2c \
+    ; \
+    rm -rf /var/lib/apt/lists/*; \
+    ! ldd "$extensionDir"/*.so | grep 'not found'
 
-COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
-
-RUN sed -ri \
+RUN set -eux; \
+    sed -ri \
         's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' \
         /etc/apache2/sites-available/*.conf \
         /etc/apache2/apache2.conf \
-        /etc/apache2/conf-available/*.conf \
-    && a2enmod rewrite headers \
-    && printf '%s\n' \
+        /etc/apache2/conf-available/*.conf; \
+    a2enmod rewrite headers; \
+    printf '%s\n' \
+        'ServerName localhost' \
+        'ServerTokens Prod' \
+        'ServerSignature Off' \
+        'TraceEnable Off' \
+        > /etc/apache2/conf-available/zz-container-hardening.conf; \
+    printf '%s\n' \
         '<Directory /var/www/html/public>' \
-        '    Options FollowSymLinks' \
+        '    Options -Indexes +FollowSymLinks' \
         '    AllowOverride None' \
         '    Require all granted' \
         '    DirectoryIndex index.php' \
         '    FallbackResource /index.php' \
         '</Directory>' \
-        > /etc/apache2/conf-available/symfony.conf \
-    && a2enconf symfony
+        '' \
+        'Alias /healthz /usr/local/share/container-healthz.php' \
+        '<Directory /usr/local/share>' \
+        '    Require all granted' \
+        '</Directory>' \
+        > /etc/apache2/conf-available/symfony.conf; \
+    a2enconf symfony zz-container-hardening; \
+    printf '%s\n' \
+        '<?php' \
+        'declare(strict_types=1);' \
+        'header("Content-Type: text/plain; charset=utf-8");' \
+        'header("X-Container-Health: php");' \
+        'echo "ok\n";' \
+        > /usr/local/share/container-healthz.php
+
+RUN cat > /usr/local/bin/container-healthcheck <<'SH'
+#!/bin/sh
+set -eu
+
+php -r '
+    $headers = @get_headers("http://127.0.0.1/healthz", true);
+    $body = @file_get_contents("http://127.0.0.1/healthz");
+    $marker = is_array($headers) ? ($headers["X-Container-Health"] ?? null) : null;
+    exit($body === "ok\n" && $marker === "php" ? 0 : 1);
+'
+SH
 
 RUN cat > /usr/local/bin/app-entrypoint <<'SH'
 #!/bin/sh
 set -eu
 
-if [ "${APP_ENV:-prod}" = "dev" ] && [ ! -f composer.json ]; then
-    echo "Initializing Symfony backend from the prepared image..."
-    cp -a /opt/app-template/. /var/www/html/
-    rm -f /var/www/html/.gitkeep
+if [ "${APP_ENV:-prod}" = "dev" ]; then
+    if [ ! -f composer.json ]; then
+        echo "Initializing Symfony backend from the prepared image..."
+        cp -a /opt/app-template/. /var/www/html/
+        rm -f /var/www/html/.gitkeep
+    elif [ ! -f vendor/autoload.php ]; then
+        echo "Restoring development dependencies from the prepared image..."
+        rm -rf vendor
+        cp -a /opt/app-template/vendor ./vendor
+    fi
+
+    if [ -f composer.lock ]; then
+        lockHash="$(sha256sum composer.lock | cut -d ' ' -f 1)"
+        installedHash="$(cat vendor/.composer-lock.sha256 2>/dev/null || true)"
+
+        if [ "$lockHash" != "$installedHash" ]; then
+            echo "Synchronizing development dependencies with composer.lock..."
+            composer install \
+                --prefer-dist \
+                --no-interaction \
+                --no-progress
+            printf '%s\n' "$lockHash" > vendor/.composer-lock.sha256
+        fi
+    fi
 fi
 
 mkdir -p var/cache var/log
-chown -R www-data:www-data var || true
+chown -R www-data:www-data var
 
-exec "$@"
+exec docker-php-entrypoint "$@"
 SH
 
-ENTRYPOINT ["sh", "/usr/local/bin/app-entrypoint"]
+RUN chmod 0755 /usr/local/bin/app-entrypoint /usr/local/bin/container-healthcheck
+
+ENTRYPOINT ["app-entrypoint"]
 CMD ["apache2-foreground"]
 
-FROM base AS application
+FROM runtime AS builder
 
+ARG BOOTSTRAP_SYMFONY=0
+
+ENV COMPOSER_ALLOW_SUPERUSER=1 \
+    COMPOSER_HOME=/tmp/composer
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=composer:2.10.2 /usr/bin/composer /usr/local/bin/composer
 COPY backend/ /tmp/backend/
 
 RUN set -eux; \
     if [ -f /tmp/backend/composer.json ]; then \
+        if [ ! -f /tmp/backend/composer.lock ]; then \
+            echo "backend/composer.lock is required; update dependencies in development and commit the lock file." >&2; \
+            exit 1; \
+        fi; \
         mkdir -p /opt/app; \
         cp -a /tmp/backend/. /opt/app/; \
         cd /opt/app; \
@@ -73,48 +164,57 @@ RUN set -eux; \
             --prefer-dist \
             --no-interaction \
             --no-progress; \
-    else \
+    elif [ "$BOOTSTRAP_SYMFONY" = "1" ]; then \
         composer create-project symfony/skeleton:"8.1.*" /opt/app \
             --prefer-dist \
             --no-interaction \
             --no-progress; \
-    fi
+    else \
+        echo "Production builds require committed Symfony source and backend/composer.lock." >&2; \
+        exit 1; \
+    fi; \
+    cd /opt/app; \
+    composer validate --no-check-publish; \
+    composer check-platform-reqs; \
+    composer audit --locked --no-interaction; \
+    sha256sum composer.lock | cut -d ' ' -f 1 > vendor/.composer-lock.sha256; \
+    rm -rf /tmp/backend var/cache/* var/log/*
 
-FROM base AS dev
+FROM builder AS production-builder
 
-ENV APP_ENV=dev \
-    APP_DEBUG=1
-
-RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini" \
-    && printf '%s\n' \
-        'opcache.enable=1' \
-        'opcache.validate_timestamps=1' \
-        'opcache.revalidate_freq=0' \
-        > "$PHP_INI_DIR/conf.d/app-opcache.ini"
-
-COPY --from=application /opt/app /opt/app-template
-
-FROM base AS prod
-
-ENV APP_ENV=prod \
-    APP_DEBUG=0
-
-RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
-    && printf '%s\n' \
-        'expose_php=0' \
-        'opcache.enable=1' \
-        'opcache.validate_timestamps=0' \
-        'opcache.memory_consumption=192' \
-        'opcache.max_accelerated_files=20000' \
-        > "$PHP_INI_DIR/conf.d/app-opcache.ini"
-
-COPY --from=application /opt/app ./
-
-RUN composer install \
+RUN set -eux; \
+    cp -a /opt/app /opt/app-prod; \
+    cd /opt/app-prod; \
+    composer install \
         --no-dev \
         --prefer-dist \
         --no-interaction \
         --no-progress \
-        --classmap-authoritative \
-    && mkdir -p var/cache var/log \
+        --classmap-authoritative; \
+    rm -f vendor/.composer-lock.sha256; \
+    APP_ENV=prod APP_DEBUG=0 php bin/console cache:clear --no-debug; \
+    APP_ENV=prod APP_DEBUG=0 php bin/console cache:warmup --no-debug
+
+FROM builder AS dev
+
+ENV APP_ENV=dev \
+    APP_DEBUG=1
+
+RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
+
+COPY docker/backend/php/dev.ini $PHP_INI_DIR/conf.d/99-app.ini
+
+RUN cp -a /opt/app /opt/app-template
+
+FROM runtime AS prod
+
+ENV APP_ENV=prod \
+    APP_DEBUG=0
+
+RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+COPY docker/backend/php/prod.ini $PHP_INI_DIR/conf.d/99-app.ini
+COPY --from=production-builder /opt/app-prod /var/www/html
+
+RUN mkdir -p var/cache var/log \
     && chown -R www-data:www-data var

@@ -1,0 +1,62 @@
+name: Backend container
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "docker/backend/**"
+      - "compose.yaml"
+      - "compose.override.yaml"
+      - "tests/backend-smoke.sh"
+      - "tests/backend-lifecycle.sh"
+      - ".github/workflows/backend-container.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "docker/backend/**"
+      - "compose.yaml"
+      - "compose.override.yaml"
+      - "tests/backend-smoke.sh"
+      - "tests/backend-lifecycle.sh"
+      - ".github/workflows/backend-container.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Development, production and security tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Show Docker versions
+        run: |
+          docker version
+          docker compose version
+
+      - name: Run container smoke tests
+        run: sh tests/backend-smoke.sh
+
+      - name: Run container lifecycle tests
+        run: sh tests/backend-lifecycle.sh
+
+      - name: Scan production image for known vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: symfony-backend:prod
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH

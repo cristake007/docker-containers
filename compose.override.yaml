@@ -3,8 +3,11 @@ services:
     image: symfony-backend:dev
     build:
       target: dev
+      args:
+        BOOTSTRAP_SYMFONY: "1"
     environment:
       APP_ENV: dev
       APP_DEBUG: "1"
+    restart: "no"
     volumes:
       - ./backend:/var/www/html
