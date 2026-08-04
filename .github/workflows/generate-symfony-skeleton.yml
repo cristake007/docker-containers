@@ -1,9 +1,7 @@
 name: Generate Symfony skeleton
 
 on:
-  push:
-    branches:
-      - backend-simplification
+  pull_request:
     paths:
       - ".github/workflows/generate-symfony-skeleton.yml"
 
