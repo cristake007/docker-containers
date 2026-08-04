@@ -40,7 +40,12 @@ x-logging: &default-logging
 
 services:
   database:
-    image: ${POSTGRES_IMAGE:-postgres:18.4-trixie}
+    image: symfony-database:prod
+    build:
+      context: .
+      dockerfile: docker/database/postgres.Dockerfile
+      args:
+        POSTGRES_IMAGE: ${POSTGRES_IMAGE:-postgres:18.4-trixie}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-app}
       POSTGRES_USER: ${POSTGRES_USER:-app}
