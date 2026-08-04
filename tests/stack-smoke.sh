@@ -136,7 +136,7 @@ BOB_TASKS="$(curl -sf -X POST "$BASE_URL/api/graphql" -b "$BOB_JAR" \
 
 BOB_DELETE="$(curl -s -X POST "$BASE_URL/api/graphql" -b "$BOB_JAR" \
     -H 'Content-Type: application/json' \
-    -d "{\"query\":\"mutation(\\\$id: ID!) { deleteTask(input: {id: \\\$id}) { task { id } } }\",\"variables\":{\"id\":\"$TASK_ID\"}}")"
+    -d "{\"query\":\"mutation(\$id: ID!) { deleteTask(input: {id: \$id}) { task { id } } }\",\"variables\":{\"id\":\"$TASK_ID\"}}")"
 case "$BOB_DELETE" in
     *"not found"*) ;;
     *)
@@ -147,13 +147,13 @@ esac
 
 UPDATE_RESPONSE="$(curl -sf -X POST "$BASE_URL/api/graphql" -b "$ALICE_JAR" \
     -H 'Content-Type: application/json' \
-    -d "{\"query\":\"mutation(\\\$id: ID!, \\\$done: Boolean!) { updateTask(input: {id: \\\$id, done: \\\$done}) { task { id done } } }\",\"variables\":{\"id\":\"$TASK_ID\",\"done\":true}}")"
+    -d "{\"query\":\"mutation(\$id: ID!, \$done: Boolean!) { updateTask(input: {id: \$id, done: \$done}) { task { id done } } }\",\"variables\":{\"id\":\"$TASK_ID\",\"done\":true}}")"
 UPDATE_DONE="$(printf '%s' "$UPDATE_RESPONSE" | json_get "d['data']['updateTask']['task']['done']")"
 [ "$UPDATE_DONE" = "True" ] || { echo "updateTask did not persist done=true: $UPDATE_RESPONSE" >&2; exit 1; }
 
 curl -sf -X POST "$BASE_URL/api/graphql" -b "$ALICE_JAR" \
     -H 'Content-Type: application/json' \
-    -d "{\"query\":\"mutation(\\\$id: ID!) { deleteTask(input: {id: \\\$id}) { task { id } } }\",\"variables\":{\"id\":\"$TASK_ID\"}}" >/dev/null
+    -d "{\"query\":\"mutation(\$id: ID!) { deleteTask(input: {id: \$id}) { task { id } } }\",\"variables\":{\"id\":\"$TASK_ID\"}}" >/dev/null
 
 curl -sf -i -X POST "$BASE_URL/api/logout" -b "$ALICE_JAR" | grep -qi '^Set-Cookie: BEARER=deleted' \
     || { echo "logout did not clear the BEARER cookie" >&2; exit 1; }
