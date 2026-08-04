@@ -40,3 +40,7 @@ services:
     restart: "no"
     environment:
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-3600}
+
+networks:
+  database:
+    internal: false
