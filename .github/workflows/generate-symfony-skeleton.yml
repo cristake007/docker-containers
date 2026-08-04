@@ -1,4 +1,4 @@
-name: Generate Symfony skeleton
+name: Prepare minimal Symfony backend
 
 on:
   pull_request:
@@ -6,18 +6,22 @@ on:
       - ".github/workflows/generate-symfony-skeleton.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  generate:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: backend-simplification
 
-      - name: Generate Symfony 8.1 skeleton
+      - name: Generate and commit minimal setup
         run: |
+          set -eu
+
           rm -rf backend
           docker run --rm \
             --user "$(id -u):$(id -g)" \
@@ -29,9 +33,275 @@ jobs:
             --no-interaction \
             --no-progress
 
-      - name: Upload generated skeleton
-        uses: actions/upload-artifact@v4
-        with:
-          name: symfony-skeleton
-          path: backend
-          include-hidden-files: true
+          rm -rf backend/vendor backend/var
+          rm -f backend/config/reference.php
+          printf '\n/config/reference.php\n' >> backend/.gitignore
+
+          cat > docker/backend/Dockerfile <<'EOF'
+          # syntax=docker/dockerfile:1.7
+
+          ARG PHP_VERSION=8.5.9
+
+          FROM php:${PHP_VERSION}-apache-bookworm AS base
+
+          ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+          WORKDIR /var/www/html
+
+          RUN set -eux; \
+              a2enmod rewrite; \
+              sed -ri "s!/var/www/html!${APACHE_DOCUMENT_ROOT}!g" \
+                  /etc/apache2/sites-available/*.conf \
+                  /etc/apache2/apache2.conf \
+                  /etc/apache2/conf-available/*.conf; \
+              printf '%s\n' \
+                  'ServerName localhost' \
+                  '<Directory /var/www/html/public>' \
+                  '    Options -Indexes +FollowSymLinks' \
+                  '    AllowOverride None' \
+                  '    Require all granted' \
+                  '    DirectoryIndex index.php' \
+                  '    FallbackResource /index.php' \
+                  '</Directory>' \
+                  > /etc/apache2/conf-available/symfony.conf; \
+              a2enconf symfony
+
+          CMD ["sh", "-c", "mkdir -p var/cache var/log && chown -R www-data:www-data var && exec apache2-foreground"]
+
+          FROM base AS dev
+
+          ENV APP_ENV=dev \
+              APP_DEBUG=1 \
+              COMPOSER_ALLOW_SUPERUSER=1
+
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends git unzip \
+              && rm -rf /var/lib/apt/lists/*
+
+          COPY --from=composer:2.10.2 /usr/bin/composer /usr/local/bin/composer
+          COPY backend/ .
+          RUN composer install --prefer-dist --no-interaction --no-progress
+
+          RUN mv "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
+          COPY docker/backend/php/dev.ini $PHP_INI_DIR/conf.d/99-app.ini
+
+          FROM base AS build
+
+          ENV APP_ENV=prod \
+              APP_DEBUG=0 \
+              COMPOSER_ALLOW_SUPERUSER=1
+
+          RUN apt-get update \
+              && apt-get install -y --no-install-recommends unzip \
+              && rm -rf /var/lib/apt/lists/*
+
+          COPY --from=composer:2.10.2 /usr/bin/composer /usr/local/bin/composer
+          COPY backend/ .
+          RUN composer install \
+                  --no-dev \
+                  --prefer-dist \
+                  --no-interaction \
+                  --no-progress \
+                  --classmap-authoritative
+
+          FROM base AS prod
+
+          ENV APP_ENV=prod \
+              APP_DEBUG=0
+
+          RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+          COPY docker/backend/php/prod.ini $PHP_INI_DIR/conf.d/99-app.ini
+          COPY --from=build /var/www/html /var/www/html
+          EOF
+
+          cat > compose.yaml <<'EOF'
+          name: symfony-backend
+
+          services:
+            backend:
+              image: symfony-backend:prod
+              build:
+                context: .
+                dockerfile: docker/backend/Dockerfile
+                target: prod
+                args:
+                  PHP_VERSION: ${PHP_VERSION:-8.5.9}
+              environment:
+                APP_ENV: prod
+                APP_DEBUG: "0"
+              ports:
+                - "127.0.0.1:8000:80"
+              restart: unless-stopped
+          EOF
+
+          cat > compose.override.yaml <<'EOF'
+          services:
+            backend:
+              image: symfony-backend:dev
+              build:
+                target: dev
+              environment:
+                APP_ENV: dev
+                APP_DEBUG: "1"
+              restart: "no"
+              volumes:
+                - ./backend:/var/www/html
+                - backend_vendor:/var/www/html/vendor
+                - backend_var:/var/www/html/var
+
+          volumes:
+            backend_vendor:
+            backend_var:
+          EOF
+
+          cat > tests/backend-smoke.sh <<'EOF'
+          #!/bin/sh
+          set -eu
+
+          PROJECT_NAME=symfony-backend-smoke
+          DEV_COMPOSE="docker compose -p $PROJECT_NAME"
+          PROD_COMPOSE="docker compose -p $PROJECT_NAME -f compose.yaml"
+
+          cleanup() {
+              $DEV_COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT INT TERM
+
+          wait_for_http() {
+              attempts=0
+              while [ "$attempts" -lt 30 ]; do
+                  status="$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/ || true)"
+                  if [ "$status" = "404" ]; then
+                      return 0
+                  fi
+                  attempts=$((attempts + 1))
+                  sleep 1
+              done
+
+              echo "Apache did not serve the Symfony skeleton." >&2
+              return 1
+          }
+
+          $DEV_COMPOSE up -d --build
+          $DEV_COMPOSE exec -T backend php bin/console about --env=dev >/dev/null
+          wait_for_http
+          $DEV_COMPOSE down -v --remove-orphans
+
+          $PROD_COMPOSE up -d --build
+          $PROD_COMPOSE exec -T backend php bin/console about --env=prod >/dev/null
+          wait_for_http
+          $PROD_COMPOSE exec -T backend sh -lc '! command -v composer >/dev/null 2>&1'
+
+          printf '%s\n' 'Development and production smoke tests passed.'
+          EOF
+          chmod +x tests/backend-smoke.sh
+          rm -f tests/backend-lifecycle.sh
+
+          cat > .github/workflows/backend-container.yml <<'EOF'
+          name: Backend container
+
+          on:
+            pull_request:
+              paths:
+                - "backend/**"
+                - "docker/backend/**"
+                - "compose.yaml"
+                - "compose.override.yaml"
+                - "tests/backend-smoke.sh"
+                - ".github/workflows/backend-container.yml"
+            push:
+              branches:
+                - main
+              paths:
+                - "backend/**"
+                - "docker/backend/**"
+                - "compose.yaml"
+                - "compose.override.yaml"
+                - "tests/backend-smoke.sh"
+                - ".github/workflows/backend-container.yml"
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            smoke:
+              runs-on: ubuntu-latest
+              timeout-minutes: 20
+
+              steps:
+                - uses: actions/checkout@v6
+                - run: sh tests/backend-smoke.sh
+          EOF
+
+          cat > README.md <<'EOF'
+          # Symfony backend container
+
+          Minimal Symfony 8.1 backend with separate development and production Docker targets.
+
+          ## Included
+
+          - committed Symfony skeleton in `backend/`;
+          - PHP 8.5 with Apache;
+          - development image with Composer and Git;
+          - production image with locked `--no-dev` dependencies;
+          - one backend service;
+          - one small smoke test for both targets.
+
+          No database, frontend, migrations, backups, CORS layer, or generated application code is included.
+
+          ## Development
+
+          ```bash
+          docker compose up --build -d
+          ```
+
+          Docker automatically applies `compose.override.yaml`, mounts `backend/`, and keeps `vendor/` and `var/` in Docker volumes.
+
+          The backend is available at `http://127.0.0.1:8000`. The Symfony skeleton has no homepage route, so HTTP 404 at `/` is expected.
+
+          Useful commands:
+
+          ```bash
+          docker compose exec backend php bin/console about
+          docker compose exec backend composer require vendor/package
+          docker compose logs -f backend
+          ```
+
+          After changing `composer.json` or `composer.lock`, update the development dependency volume:
+
+          ```bash
+          docker compose run --rm backend composer install
+          ```
+
+          Stop development:
+
+          ```bash
+          docker compose down
+          ```
+
+          ## Production
+
+          ```bash
+          docker compose -f compose.yaml up --build -d
+          ```
+
+          The production image installs dependencies from the committed `backend/composer.lock`, excludes development packages, and does not contain Composer or Git.
+
+          Set real production environment variables outside the repository before deployment, including `APP_SECRET` when the application begins using features that require it.
+
+          ## Test
+
+          ```bash
+          sh tests/backend-smoke.sh
+          ```
+
+          The smoke test starts both setups and verifies that Symfony boots in development and production.
+          EOF
+
+          rm -f .github/workflows/generate-symfony-skeleton.yml
+
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add -A
+          git commit -m "Simplify Symfony backend dev and prod setup"
+          git push origin HEAD:backend-simplification
