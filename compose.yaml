@@ -12,6 +12,10 @@ services:
     environment:
       APP_ENV: prod
       APP_DEBUG: "0"
-    ports:
-      - "127.0.0.1:8000:80"
+    expose:
+      - "9000"
+    init: true
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 10s
