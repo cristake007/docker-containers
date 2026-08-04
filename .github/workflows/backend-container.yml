@@ -87,10 +87,10 @@ jobs:
           vuln-type: os,library
           severity: CRITICAL,HIGH
 
-      - name: Scan PostgreSQL image
+      - name: Scan hardened PostgreSQL image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: postgres:18.4-trixie
+          image-ref: symfony-database:prod
           format: table
           exit-code: "1"
           ignore-unfixed: true
