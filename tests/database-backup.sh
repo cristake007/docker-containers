@@ -137,26 +137,12 @@ docker exec "$backup_container" sh -lc '
     set -eu
 
     postgres_uid="$(id -u postgres)"
-    scheduler_found=0
+    process_uid="$(awk "/^Uid:/ { print \$2; exit }" /proc/1/status)"
+    command_line="$(tr "\000" " " < /proc/1/cmdline)"
 
-    for process_directory in /proc/[0-9]*; do
-        [ -r "$process_directory/status" ] || continue
-        [ -r "$process_directory/cmdline" ] || continue
-
-        command_line="$(tr "\000" " " < "$process_directory/cmdline" 2>/dev/null || true)"
-        case "$command_line" in
-            *"backup-entrypoint backup-loop"*)
-                process_uid="$(awk "/^Uid:/ { print \$2; exit }" "$process_directory/status")"
-                if [ "$process_uid" != "$postgres_uid" ]; then
-                    echo "Backup scheduler is not running as postgres." >&2
-                    exit 1
-                fi
-                scheduler_found=1
-                ;;
-        esac
-    done
-
-    test "$scheduler_found" = "1"
+    test "$process_uid" = "$postgres_uid"
+    printf "%s" "$command_line" | grep -q "backup-entrypoint"
+    printf "%s" "$command_line" | grep -q "backup-loop"
 '
 
 set_phase 'Database probe insertion'
