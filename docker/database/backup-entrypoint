@@ -1,0 +1,116 @@
+#!/bin/sh
+set -eu
+
+umask 077
+
+DATABASE_HOST="${DATABASE_HOST:-database}"
+DATABASE_PORT="${DATABASE_PORT:-5432}"
+DATABASE_NAME="${DATABASE_NAME:-app}"
+DATABASE_USER="${DATABASE_USER:-app}"
+DATABASE_PASSWORD_FILE="${DATABASE_PASSWORD_FILE:-/run/secrets/database_password}"
+BACKUP_INTERVAL_SECONDS="${BACKUP_INTERVAL_SECONDS:-86400}"
+BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
+BACKUP_PREFIX="${BACKUP_PREFIX:-app}"
+
+if [ ! -r "$DATABASE_PASSWORD_FILE" ] || [ ! -s "$DATABASE_PASSWORD_FILE" ]; then
+    echo "Database password secret is missing or unreadable." >&2
+    exit 1
+fi
+
+export PGPASSWORD
+PGPASSWORD="$(cat "$DATABASE_PASSWORD_FILE")"
+export PGCONNECT_TIMEOUT=5
+
+backup_once() {
+    timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    temporary_file="/backups/.${BACKUP_PREFIX}-${timestamp}.dump.tmp"
+    final_file="/backups/${BACKUP_PREFIX}-${timestamp}.dump"
+
+    rm -f "$temporary_file"
+
+    pg_dump \
+        --host="$DATABASE_HOST" \
+        --port="$DATABASE_PORT" \
+        --username="$DATABASE_USER" \
+        --dbname="$DATABASE_NAME" \
+        --format=custom \
+        --compress=6 \
+        --no-owner \
+        --no-privileges \
+        --file="$temporary_file"
+
+    pg_restore --list "$temporary_file" >/dev/null
+    mv "$temporary_file" "$final_file"
+    sha256sum "$final_file" > "${final_file}.sha256"
+
+    find /backups -maxdepth 1 -type f \
+        \( -name "${BACKUP_PREFIX}-*.dump" -o -name "${BACKUP_PREFIX}-*.dump.sha256" \) \
+        -mtime "+${BACKUP_RETENTION_DAYS}" -delete
+
+    printf 'Verified database backup created: %s\n' "$final_file"
+}
+
+verify_backup() {
+    backup_file="$1"
+
+    test -f "$backup_file"
+    test -f "${backup_file}.sha256"
+    sha256sum -c "${backup_file}.sha256" >/dev/null
+    pg_restore --list "$backup_file" >/dev/null
+
+    printf 'Backup verified: %s\n' "$backup_file"
+}
+
+restore_backup() {
+    backup_file="$1"
+
+    if [ "${RESTORE_CONFIRM:-}" != "$DATABASE_NAME" ]; then
+        echo "Set RESTORE_CONFIRM exactly to the target database name before restoring." >&2
+        exit 1
+    fi
+
+    verify_backup "$backup_file"
+
+    pg_restore \
+        --host="$DATABASE_HOST" \
+        --port="$DATABASE_PORT" \
+        --username="$DATABASE_USER" \
+        --dbname="$DATABASE_NAME" \
+        --clean \
+        --if-exists \
+        --exit-on-error \
+        --no-owner \
+        --no-privileges \
+        "$backup_file"
+
+    printf 'Backup restored into database: %s\n' "$DATABASE_NAME"
+}
+
+case "${1:-backup-loop}" in
+    backup-loop)
+        while true; do
+            backup_once
+            sleep "$BACKUP_INTERVAL_SECONDS"
+        done
+        ;;
+    backup-once)
+        backup_once
+        ;;
+    verify-backup)
+        if [ "$#" -ne 2 ]; then
+            echo "Usage: backup-entrypoint verify-backup /backups/file.dump" >&2
+            exit 64
+        fi
+        verify_backup "$2"
+        ;;
+    restore-backup)
+        if [ "$#" -ne 2 ]; then
+            echo "Usage: backup-entrypoint restore-backup /backups/file.dump" >&2
+            exit 64
+        fi
+        restore_backup "$2"
+        ;;
+    *)
+        exec "$@"
+        ;;
+esac
