@@ -175,9 +175,9 @@ $PROD_COMPOSE exec -T backend sh -lc '
     apache2ctl -M 2>/dev/null | grep -q php_module
     apache2ctl -M 2>/dev/null | grep -q rewrite_module
     apache2ctl -M 2>/dev/null | grep -q headers_module
-    grep -qx "ServerTokens Prod" /etc/apache2/conf-enabled/container-hardening.conf
-    grep -qx "ServerSignature Off" /etc/apache2/conf-enabled/container-hardening.conf
-    grep -qx "TraceEnable Off" /etc/apache2/conf-enabled/container-hardening.conf
+    grep -qx "ServerTokens Prod" /etc/apache2/conf-enabled/zz-container-hardening.conf
+    grep -qx "ServerSignature Off" /etc/apache2/conf-enabled/zz-container-hardening.conf
+    grep -qx "TraceEnable Off" /etc/apache2/conf-enabled/zz-container-hardening.conf
 
     php -r '\''
         $headers = get_headers("http://127.0.0.1/healthz", true);
@@ -189,7 +189,7 @@ $PROD_COMPOSE exec -T backend sh -lc '
             if (is_string($name) && strcasecmp($name, "Server") === 0) {
                 $server = is_array($value) ? end($value) : $value;
                 if ($server !== "Apache") {
-                    fwrite(STDERR, "Apache version information is exposed.\n");
+                    fwrite(STDERR, "Apache version information is exposed: ".$server."\n");
                     exit(1);
                 }
             }
