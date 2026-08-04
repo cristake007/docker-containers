@@ -1,0 +1,39 @@
+name: Generate Symfony skeleton
+
+on:
+  push:
+    branches:
+      - backend-simplification
+    paths:
+      - ".github/workflows/generate-symfony-skeleton.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Generate Symfony 8.1 skeleton
+        run: |
+          rm -rf backend
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "$PWD:/app" \
+            --workdir /app \
+            composer:2.10.2 \
+            create-project symfony/skeleton:"8.1.*" backend \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress
+
+      - name: Upload generated skeleton
+        uses: actions/upload-artifact@v4
+        with:
+          name: symfony-skeleton
+          path: backend
+          include-hidden-files: true
