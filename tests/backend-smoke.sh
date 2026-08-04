@@ -124,7 +124,7 @@ $PROD_COMPOSE exec -T backend sh -lc '
     done
 
     for package in autoconf dpkg-dev g++ gcc libc6-dev libicu-dev libpq-dev libzip-dev make pkg-config re2c; do
-        if dpkg-query -W -f="${db:Status-Abbrev}" "$package" 2>/dev/null | grep -q "^ii"; then
+        if dpkg-query -W -f='\''${db:Status-Abbrev}'\'' "$package" 2>/dev/null | grep -q "^ii"; then
             echo "$package must not be installed in the production image." >&2
             exit 1
         fi
@@ -136,7 +136,7 @@ $PROD_COMPOSE exec -T backend sh -lc '
         $versions = $installed["versions"] ?? $installed[0]["versions"] ?? [];
         foreach ($lock["packages-dev"] ?? [] as $package) {
             if (isset($versions[$package["name"]])) {
-                fwrite(STDERR, "Development package installed in production: {$package["name"]}\n");
+                fwrite(STDERR, "Development package installed in production: ".$package["name"]."\n");
                 exit(1);
             }
         }
