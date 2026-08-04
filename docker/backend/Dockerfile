@@ -60,7 +60,7 @@ RUN set -eux; \
         'ServerTokens Prod' \
         'ServerSignature Off' \
         'TraceEnable Off' \
-        > /etc/apache2/conf-available/container-hardening.conf; \
+        > /etc/apache2/conf-available/zz-container-hardening.conf; \
     printf '%s\n' \
         '<Directory /var/www/html/public>' \
         '    Options -Indexes +FollowSymLinks' \
@@ -75,7 +75,7 @@ RUN set -eux; \
         '    Require all granted' \
         '</Directory>' \
         > /etc/apache2/conf-available/symfony.conf; \
-    a2enconf container-hardening symfony; \
+    a2enconf symfony zz-container-hardening; \
     printf 'ok\n' > /usr/local/share/container-healthz
 
 RUN cat > /usr/local/bin/container-healthcheck <<'SH'
