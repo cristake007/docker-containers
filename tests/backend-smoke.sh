@@ -1,25 +1,32 @@
 #!/bin/sh
 set -eu
 
+SCRIPT_DIRECTORY="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+. "$SCRIPT_DIRECTORY/test-env.sh"
+
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-symfony-backend-smoke}"
 DEV_COMPOSE="docker compose -p $PROJECT_NAME"
 PROD_COMPOSE="docker compose -p $PROJECT_NAME -f compose.yaml"
 
+prepare_test_environment "$PROJECT_NAME"
+
 cleanup() {
     $DEV_COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
+    remove_test_environment
 }
 
-wait_for_health() {
+wait_for_service_health() {
     compose_command="$1"
-    container_id="$($compose_command ps -q backend)"
+    service="$2"
+    container_id="$($compose_command ps -q "$service")"
 
     if [ -z "$container_id" ]; then
-        echo "Backend container was not created." >&2
+        echo "$service container was not created." >&2
         return 1
     fi
 
     attempts=0
-    while [ "$attempts" -lt 60 ]; do
+    while [ "$attempts" -lt 90 ]; do
         status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id")"
 
         case "$status" in
@@ -27,7 +34,7 @@ wait_for_health() {
                 return 0
                 ;;
             unhealthy|exited|dead)
-                $compose_command logs backend >&2 || true
+                $compose_command logs "$service" >&2 || true
                 return 1
                 ;;
         esac
@@ -36,9 +43,64 @@ wait_for_health() {
         sleep 2
     done
 
-    $compose_command logs backend >&2 || true
-    echo "Backend did not become healthy." >&2
+    $compose_command logs "$service" >&2 || true
+    echo "$service did not become healthy." >&2
     return 1
+}
+
+assert_migration_completed() {
+    compose_command="$1"
+    migration_container="$($compose_command ps -a -q migrate)"
+
+    test -n "$migration_container"
+    test "$(docker inspect --format '{{.State.Status}}' "$migration_container")" = "exited"
+    test "$(docker inspect --format '{{.State.ExitCode}}' "$migration_container")" = "0"
+}
+
+assert_http_contract() {
+    compose_command="$1"
+
+    $compose_command exec -T backend php -r '
+        $healthHeaders = get_headers("http://127.0.0.1/healthz", true);
+        $healthBody = file_get_contents("http://127.0.0.1/healthz");
+        if ($healthBody !== "ok\n" || ($healthHeaders["X-Container-Health"] ?? null) !== "php") {
+            fwrite(STDERR, "Container health endpoint failed.\n");
+            exit(1);
+        }
+
+        $readyHeaders = get_headers("http://127.0.0.1/readyz", true);
+        $readyBody = file_get_contents("http://127.0.0.1/readyz");
+        if ($readyBody !== "ready\n" || ($readyHeaders["X-Application-Readiness"] ?? null) !== "database") {
+            fwrite(STDERR, "Application readiness endpoint failed.\n");
+            exit(1);
+        }
+
+        $allowedContext = stream_context_create(["http" => [
+            "method" => "OPTIONS",
+            "ignore_errors" => true,
+            "header" => "Origin: http://localhost:4200\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: Authorization, Content-Type\r\n",
+        ]]);
+        @file_get_contents("http://127.0.0.1/readyz", false, $allowedContext);
+        $allowedHeaders = $http_response_header ?? [];
+        $allowedText = implode("\n", $allowedHeaders);
+        if (!str_contains($allowedHeaders[0] ?? "", "204") || !str_contains($allowedText, "Access-Control-Allow-Origin: http://localhost:4200")) {
+            fwrite(STDERR, "Allowed CORS preflight failed.\n");
+            exit(1);
+        }
+
+        $deniedContext = stream_context_create(["http" => [
+            "method" => "OPTIONS",
+            "ignore_errors" => true,
+            "header" => "Origin: https://untrusted.example\r\nAccess-Control-Request-Method: POST\r\n",
+        ]]);
+        @file_get_contents("http://127.0.0.1/readyz", false, $deniedContext);
+        $deniedHeaders = $http_response_header ?? [];
+        $deniedText = implode("\n", $deniedHeaders);
+        if (!str_contains($deniedHeaders[0] ?? "", "403") || str_contains($deniedText, "Access-Control-Allow-Origin")) {
+            fwrite(STDERR, "Denied CORS preflight was not blocked.\n");
+            exit(1);
+        }
+    '
 }
 
 trap cleanup EXIT INT TERM
@@ -50,6 +112,13 @@ $PROD_COMPOSE config --quiet
 $DEV_COMPOSE config | grep -q 'target: dev'
 $PROD_COMPOSE config | grep -q 'target: prod'
 $DEV_COMPOSE config | grep -q '/var/www/html'
+$DEV_COMPOSE config | grep -q '127.0.0.1:5432'
+$PROD_COMPOSE config | grep -q 'condition: service_completed_successfully'
+$PROD_COMPOSE config | grep -q '/var/lib/postgresql'
+if $PROD_COMPOSE config | grep -q '127.0.0.1:5432'; then
+    echo "Production unexpectedly publishes PostgreSQL." >&2
+    exit 1
+fi
 if $PROD_COMPOSE config | grep -q '/var/www/html'; then
     echo "Production Compose configuration unexpectedly contains the development source mount." >&2
     exit 1
@@ -76,12 +145,12 @@ if [ ! -f backend/composer.lock ]; then
     rm -f "$rejection_log"
 fi
 
-printf '%s\n' 'Building development image...'
-$DEV_COMPOSE build backend
-
-printf '%s\n' 'Starting and testing development container...'
-$DEV_COMPOSE up -d backend
-wait_for_health "$DEV_COMPOSE"
+printf '%s\n' 'Building and starting the development platform...'
+$DEV_COMPOSE up -d --build backend
+wait_for_service_health "$DEV_COMPOSE" database
+wait_for_service_health "$DEV_COMPOSE" backend
+assert_migration_completed "$DEV_COMPOSE"
+assert_http_contract "$DEV_COMPOSE"
 
 $DEV_COMPOSE exec -T backend sh -lc '
     set -eu
@@ -91,6 +160,9 @@ $DEV_COMPOSE exec -T backend sh -lc '
     test -f composer.json
     test -f composer.lock
     test -f vendor/autoload.php
+    test -f config/packages/container.yaml
+    test -f config/packages/doctrine.yaml
+    test -f migrations/Version20260804000000.php
 
     php -r '\''exit(ini_get("display_errors") === "1" ? 0 : 1);'\''
     php -r '\''exit(ini_get("memory_limit") === "512M" ? 0 : 1);'\''
@@ -102,24 +174,27 @@ $DEV_COMPOSE exec -T backend sh -lc '
     composer validate --no-check-publish
     composer check-platform-reqs
     composer audit --locked --no-interaction
+    composer show --locked doctrine/doctrine-bundle >/dev/null
+    composer show --locked doctrine/doctrine-migrations-bundle >/dev/null
     php bin/console about --env=dev >/dev/null
+    php bin/console lint:container
+    php bin/console lint:yaml config
+    php bin/console doctrine:migrations:status --no-interaction >/dev/null
 
     apache2ctl configtest
     apache2ctl -M 2>/dev/null | grep -q php_module
     apache2ctl -M 2>/dev/null | grep -q rewrite_module
     apache2ctl -M 2>/dev/null | grep -q headers_module
-
-    php -r '\''$body = @file_get_contents("http://127.0.0.1/healthz"); exit($body === "ok\n" ? 0 : 1);'\''
 '
 
 $DEV_COMPOSE down -v --remove-orphans
 
-printf '%s\n' 'Building production image...'
-$PROD_COMPOSE build backend
-
-printf '%s\n' 'Starting and testing production container...'
-$PROD_COMPOSE up -d backend
-wait_for_health "$PROD_COMPOSE"
+printf '%s\n' 'Building and starting the production platform...'
+$PROD_COMPOSE up -d --build backend
+wait_for_service_health "$PROD_COMPOSE" database
+wait_for_service_health "$PROD_COMPOSE" backend
+assert_migration_completed "$PROD_COMPOSE"
+assert_http_contract "$PROD_COMPOSE"
 
 $PROD_COMPOSE exec -T backend sh -lc '
     set -eu
@@ -170,6 +245,7 @@ $PROD_COMPOSE exec -T backend sh -lc '
     su -s /bin/sh www-data -c '\''touch var/cache/container-smoke-test && rm var/cache/container-smoke-test'\''
 
     php bin/console about --env=prod >/dev/null
+    php bin/console doctrine:migrations:status --no-interaction >/dev/null
 
     apache2ctl configtest
     apache2ctl -M 2>/dev/null | grep -q php_module
@@ -181,10 +257,6 @@ $PROD_COMPOSE exec -T backend sh -lc '
 
     php -r '\''
         $headers = get_headers("http://127.0.0.1/healthz", true);
-        if (!is_array($headers) || !str_contains($headers[0], "200")) {
-            fwrite(STDERR, "Health endpoint did not return HTTP 200.\n");
-            exit(1);
-        }
         foreach ($headers as $name => $value) {
             if (is_string($name) && strcasecmp($name, "Server") === 0) {
                 $server = is_array($value) ? end($value) : $value;
@@ -218,16 +290,45 @@ $PROD_COMPOSE exec -T backend sh -lc '
 '
 
 production_container="$($PROD_COMPOSE ps -q backend)"
-mount_count="$(docker inspect --format '{{len .Mounts}}' "$production_container")"
-[ "$mount_count" -eq 0 ]
+database_container="$($PROD_COMPOSE ps -q database)"
+
+mount_destinations="$(docker inspect --format '{{range .Mounts}}{{println .Destination}}{{end}}' "$production_container")"
+if printf '%s\n' "$mount_destinations" | grep -qx '/var/www/html'; then
+    echo "Production backend has a source mount." >&2
+    exit 1
+fi
+printf '%s\n' "$mount_destinations" | grep -qx '/run/secrets/app_secret'
+printf '%s\n' "$mount_destinations" | grep -qx '/run/secrets/database_password'
 
 host_ip="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "80/tcp") 0).HostIp}}' "$production_container")"
-[ "$host_ip" = "127.0.0.1" ]
+test "$host_ip" = "127.0.0.1"
 
-security_options="$(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "$production_container")"
-printf '%s' "$security_options" | grep -q 'no-new-privileges'
+if docker port "$database_container" 5432/tcp >/dev/null 2>&1; then
+    echo "Production PostgreSQL is publicly mapped." >&2
+    exit 1
+fi
 
-init_enabled="$(docker inspect --format '{{.HostConfig.Init}}' "$production_container")"
-[ "$init_enabled" = "true" ]
+database_network="${PROJECT_NAME}_database"
+test "$(docker network inspect --format '{{.Internal}}' "$database_network")" = "true"
+
+for container_id in "$production_container" "$database_container"; do
+    security_options="$(docker inspect --format '{{json .HostConfig.SecurityOpt}}' "$container_id")"
+    printf '%s' "$security_options" | grep -q 'no-new-privileges'
+    test "$(docker inspect --format '{{.HostConfig.Init}}' "$container_id")" = "true"
+done
+
+app_secret="$(cat "$APP_SECRET_SECRET_FILE")"
+database_password="$(cat "$DATABASE_PASSWORD_SECRET_FILE")"
+for container_id in "$production_container" "$database_container"; do
+    configured_environment="$(docker inspect --format '{{json .Config.Env}}' "$container_id")"
+    if printf '%s' "$configured_environment" | grep -Fq "$app_secret"; then
+        echo "Application secret leaked into container environment configuration." >&2
+        exit 1
+    fi
+    if printf '%s' "$configured_environment" | grep -Fq "$database_password"; then
+        echo "Database password leaked into container environment configuration." >&2
+        exit 1
+    fi
+done
 
 printf '%s\n' 'Development and production smoke tests passed.'
