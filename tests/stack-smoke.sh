@@ -21,17 +21,21 @@ json_get() {
 }
 
 wait_for_http() {
+    # Waits for the *expected* status, not just any response: nginx itself
+    # comes up almost instantly and will happily return 502 while the
+    # fastcgi backend behind it is still booting, which is not "ready".
     url="$1"
+    expected_code="$2"
     attempts=0
     while [ "$attempts" -lt 60 ]; do
         code="$(curl -s -o /dev/null -w '%{http_code}' "$url" || true)"
-        if [ "$code" != "000" ]; then
+        if [ "$code" = "$expected_code" ]; then
             return 0
         fi
         attempts=$((attempts + 1))
         sleep 1
     done
-    echo "Timed out waiting for $url" >&2
+    echo "Timed out waiting for $url to return $expected_code (last saw $code)" >&2
     return 1
 }
 
@@ -70,7 +74,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-wait_for_http "$BASE_URL/api/me"
+wait_for_http "$BASE_URL/api/me" 401
 
 ALICE_JAR="$(mktemp)"
 BOB_JAR="$(mktemp)"
@@ -111,7 +115,7 @@ BOB_TASKS="$(curl -sf -X POST "$BASE_URL/api/graphql" -b "$BOB_JAR" \
     -d '{"query":"query { tasks { id title } }"}' | json_get "len(d['data']['tasks'])")"
 [ "$BOB_TASKS" = "0" ] || { echo "expected bob to see 0 tasks (ownership leak!), saw $BOB_TASKS" >&2; exit 1; }
 
-BOB_DELETE="$(curl -sf -X POST "$BASE_URL/api/graphql" -b "$BOB_JAR" \
+BOB_DELETE="$(curl -s -X POST "$BASE_URL/api/graphql" -b "$BOB_JAR" \
     -H 'Content-Type: application/json' \
     -d "{\"query\":\"mutation(\\\$id: ID!) { deleteTask(input: {id: \\\$id}) { task { id } } }\",\"variables\":{\"id\":\"$TASK_ID\"}}")"
 case "$BOB_DELETE" in

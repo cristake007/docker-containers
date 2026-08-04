@@ -12,13 +12,11 @@ trap cleanup EXIT INT TERM
 
 wait_for_fpm() {
     compose_command="$1"
+    port="$($compose_command port backend 9000 | cut -d: -f2)"
     attempts=0
 
     while [ "$attempts" -lt 30 ]; do
-        if $compose_command exec -T backend php -r '
-            $socket = @fsockopen("127.0.0.1", 9000, $errorCode, $errorMessage, 1);
-            exit(is_resource($socket) ? 0 : 1);
-        ' >/dev/null 2>&1; then
+        if nc -z 127.0.0.1 "$port" 2>/dev/null; then
             return 0
         fi
 
@@ -27,7 +25,7 @@ wait_for_fpm() {
     done
 
     $compose_command logs backend >&2 || true
-    echo "PHP-FPM did not become available on port 9000." >&2
+    echo "PHP-FPM did not become available on 127.0.0.1:$port." >&2
     return 1
 }
 
