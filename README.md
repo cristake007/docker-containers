@@ -1,49 +1,41 @@
 # Symfony backend container
 
-Backend-only Symfony container setup using:
+Minimal Symfony 8.1 backend with separate development and production Docker targets.
 
-- one multi-stage Dockerfile;
-- one production-safe `compose.yaml`;
-- Docker's automatic `compose.override.yaml` for development;
-- explicit development and production PHP configuration;
-- automated smoke, lifecycle and vulnerability tests.
+## Included
 
-No frontend or database service is included yet.
+- committed Symfony skeleton in `backend/`;
+- PHP 8.5 with Apache;
+- development image with Composer and Git;
+- production image with locked `--no-dev` dependencies;
+- one backend service;
+- one small smoke test for both targets.
+
+No database, frontend, migrations, backups, CORS layer, or generated application code is included.
 
 ## Development
-
-Start the development target:
 
 ```bash
 docker compose up --build -d
 ```
 
-Docker automatically merges `compose.override.yaml`, builds the `dev` target and mounts `./backend` into the container.
+Docker automatically applies `compose.override.yaml`, mounts `backend/`, and keeps `vendor/` and `var/` in Docker volumes.
 
-When `backend/` is empty, the development build prepares a Symfony 8.1 skeleton. The first container start copies that prepared project into `backend/` without downloading it again at runtime.
+The backend is available at `http://127.0.0.1:8000`. The Symfony skeleton has no homepage route, so HTTP 404 at `/` is expected.
 
-The development image includes Composer and Git. A hash marker is stored beside `vendor/`; when `composer.lock` changes, the next container start automatically runs `composer install` and updates the marker. This keeps the bind-mounted dependencies aligned with the lock file.
-
-Check the service:
+Useful commands:
 
 ```bash
-docker compose ps
 docker compose exec backend php bin/console about
+docker compose exec backend composer require vendor/package
+docker compose logs -f backend
 ```
 
-The backend listens only on:
+After changing `composer.json` or `composer.lock`, update the development dependency volume:
 
-```text
-http://127.0.0.1:8000
+```bash
+docker compose run --rm backend composer install
 ```
-
-The lightweight health endpoint executes through Apache and PHP:
-
-```text
-http://127.0.0.1:8000/healthz
-```
-
-A new Symfony skeleton has no homepage route, so HTTP 404 at `/` is expected.
 
 Stop development:
 
@@ -53,59 +45,18 @@ docker compose down
 
 ## Production
 
-Before building production, commit the Symfony application source and `backend/composer.lock`. Production intentionally refuses to resolve a new dependency graph or generate a new Symfony project.
-
-Build and start only the production-safe base configuration:
-
 ```bash
 docker compose -f compose.yaml up --build -d
 ```
 
-The production image:
+The production image installs dependencies from the committed `backend/composer.lock`, excludes development packages, and does not contain Composer or Git.
 
-- installs only locked production dependencies;
-- runs Symfony cache clear and warmup during the build;
-- does not contain Composer, Git, compiler packages or development headers;
-- keeps application source owned by `root`;
-- grants the Apache worker write access only to Symfony's `var/` directory;
-- enables production PHP defaults and explicit OPcache settings;
-- suppresses PHP and Apache version disclosure and disables TRACE;
-- has no source bind mount;
-- exposes Apache only on host loopback;
-- uses log rotation, an init process, graceful shutdown and `no-new-privileges`;
-- uses a low-overhead Apache/PHP health check.
+Set real production environment variables outside the repository before deployment, including `APP_SECRET` when the application begins using features that require it.
 
-## Automated container tests
-
-Run the same functional and lifecycle suites used by GitHub Actions:
+## Test
 
 ```bash
 sh tests/backend-smoke.sh
-sh tests/backend-lifecycle.sh
 ```
 
-The tests validate:
-
-- Compose merging and production rejection of unlocked application source;
-- development and production builds, startup, health and restarts;
-- automatic development dependency reconciliation;
-- Symfony boot, cache warmup, Composer validation and dependency audit;
-- PHP extensions, environment-specific settings and OPcache behavior;
-- Apache syntax, modules, headers, version suppression and TRACE blocking;
-- root-owned production source with writable Symfony runtime directories;
-- removal of Composer, Git, compilers, development headers and dev dependencies;
-- production mounts, loopback exposure, init and `no-new-privileges`.
-
-GitHub Actions also scans the final production image with Trivy and blocks fixable `HIGH` or `CRITICAL` operating-system and library vulnerabilities.
-
-## Production boundary
-
-The container foundation is tested for development and production operation. A real application still needs environment-specific configuration before deployment, including secrets, database credentials, trusted reverse proxies, CORS policy, database migrations, backups and an application-level readiness check for required external services.
-
-## Future services
-
-A future frontend container can join the `application` network and reach Symfony internally at:
-
-```text
-http://backend
-```
+The smoke test starts both setups and verifies that Symfony boots in development and production.
