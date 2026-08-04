@@ -55,6 +55,27 @@ if $PROD_COMPOSE config | grep -q '/var/www/html'; then
     exit 1
 fi
 
+if [ ! -f backend/composer.lock ]; then
+    printf '%s\n' 'Verifying that production rejects unlocked application source...'
+    rejection_log="$(mktemp)"
+
+    if $PROD_COMPOSE build backend >"$rejection_log" 2>&1; then
+        cat "$rejection_log" >&2
+        echo "Production build unexpectedly succeeded without backend/composer.lock." >&2
+        rm -f "$rejection_log"
+        exit 1
+    fi
+
+    if ! grep -q 'Production builds require committed Symfony source and backend/composer.lock.' "$rejection_log"; then
+        cat "$rejection_log" >&2
+        echo "Production build failed for an unexpected reason." >&2
+        rm -f "$rejection_log"
+        exit 1
+    fi
+
+    rm -f "$rejection_log"
+fi
+
 printf '%s\n' 'Building development image...'
 $DEV_COMPOSE build backend
 
