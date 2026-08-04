@@ -34,3 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: sh tests/backend-smoke.sh
+      # TEMPORARY: diagnosing an exit-137 (SIGKILL) seen right after the
+      # backend container starts. Remove once the cause is confirmed.
+      - name: Dump memory samples (debug)
+        if: always()
+        run: cat /tmp/meminfo.log || true

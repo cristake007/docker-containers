@@ -7,8 +7,16 @@ PROD_COMPOSE="docker compose -p $PROJECT_NAME -f compose.yaml"
 
 cleanup() {
     $DEV_COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
+    [ -n "${MEM_WATCH_PID:-}" ] && kill "$MEM_WATCH_PID" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
+
+# TEMPORARY: diagnosing an exit-137 (SIGKILL) seen in CI right after the
+# backend container starts. Samples memory every second in the background
+# so the log has data from the moment of the kill, not just a before/after
+# snapshot. Remove once the cause is confirmed.
+( while true; do date -u +%T; free -m; echo '---'; sleep 1; done > /tmp/meminfo.log 2>&1 ) &
+MEM_WATCH_PID=$!
 
 wait_for_fpm() {
     compose_command="$1"
