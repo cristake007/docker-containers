@@ -1,17 +1,19 @@
-# Symfony backend container
+# Symfony PHP-FPM backend
 
-Minimal Symfony 8.1 backend with separate development and production Docker targets.
+Minimal Symfony 8.1 backend with separate development and production PHP-FPM images.
 
 ## Included
 
 - committed Symfony skeleton in `backend/`;
-- PHP 8.5 with Apache;
+- PHP 8.5 FPM;
 - development image with Composer and Git;
 - production image with locked `--no-dev` dependencies;
 - one backend service;
-- one small smoke test for both targets.
+- one smoke test for both targets.
 
-No database, frontend, migrations, backups, CORS layer, or generated application code is included.
+There is no Apache, Nginx, database, frontend, migration service, backup service, CORS layer, or application-specific infrastructure.
+
+PHP-FPM is not an HTTP server. The container exposes FastCGI port `9000` only to other containers on the Compose network and does not publish a host port. A reverse proxy or web server can be added separately when the complete application stack requires one.
 
 ## Development
 
@@ -20,8 +22,6 @@ docker compose up --build -d
 ```
 
 Docker automatically applies `compose.override.yaml`, mounts `backend/`, and keeps `vendor/` and `var/` in Docker volumes.
-
-The backend is available at `http://127.0.0.1:8000`. The Symfony skeleton has no homepage route, so HTTP 404 at `/` is expected.
 
 Useful commands:
 
@@ -49,9 +49,20 @@ docker compose down
 docker compose -f compose.yaml up --build -d
 ```
 
-The production image installs dependencies from the committed `backend/composer.lock`, excludes development packages, and does not contain Composer or Git.
+The production image:
 
-Set real production environment variables outside the repository before deployment, including `APP_SECRET` when the application begins using features that require it.
+- runs PHP-FPM only;
+- installs dependencies from the committed `backend/composer.lock`;
+- excludes development dependencies;
+- validates Composer metadata and platform requirements during the build;
+- audits locked PHP dependencies during the build;
+- uses authoritative Composer autoloading;
+- clears the Symfony production cache during the build;
+- contains neither Composer nor Git;
+- keeps application source owned by `root` and Symfony's `var/` directory writable by `www-data`;
+- publishes no host port.
+
+Set real production environment variables outside the repository, including a secure `APP_SECRET` when the application uses features that require it.
 
 ## Test
 
@@ -59,4 +70,4 @@ Set real production environment variables outside the repository before deployme
 sh tests/backend-smoke.sh
 ```
 
-The smoke test starts both setups and verifies that Symfony boots in development and production.
+The smoke test builds both targets, verifies Symfony and PHP-FPM startup, checks the internal FastCGI socket, confirms that no host port is published, validates Composer dependencies, and confirms that Apache and Nginx are absent.
