@@ -5,9 +5,15 @@ FROM ${POSTGRES_IMAGE}
 
 COPY docker/database/backup-entrypoint /usr/local/bin/backup-entrypoint
 
-RUN chmod 0755 /usr/local/bin/backup-entrypoint \
-    && install -d -o postgres -g postgres -m 0700 /backups \
-    && command -v gosu >/dev/null
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends util-linux; \
+    rm -rf /var/lib/apt/lists/*; \
+    rm -f /usr/local/bin/gosu; \
+    chmod 0755 /usr/local/bin/backup-entrypoint; \
+    install -d -o postgres -g postgres -m 0700 /backups; \
+    command -v setpriv >/dev/null; \
+    test ! -e /usr/local/bin/gosu
 
 WORKDIR /backups
 
