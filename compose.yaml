@@ -29,6 +29,9 @@ x-backend-secrets: &backend-secrets
   - app_secret
   - database_password
 
+x-backend-tmpfs: &backend-tmpfs
+  - /run/app-secrets:size=1m,mode=0750,uid=0,gid=33
+
 x-logging: &default-logging
   driver: json-file
   options:
@@ -75,6 +78,7 @@ services:
       - --no-interaction
     environment: *backend-environment
     secrets: *backend-secrets
+    tmpfs: *backend-tmpfs
     depends_on:
       database:
         condition: service_healthy
@@ -92,6 +96,7 @@ services:
     build: *backend-build
     environment: *backend-environment
     secrets: *backend-secrets
+    tmpfs: *backend-tmpfs
     depends_on:
       database:
         condition: service_healthy
