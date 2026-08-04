@@ -1,25 +1,35 @@
-name: Backend container
+name: Backend platform
 
 on:
   pull_request:
     paths:
+      - ".env.example"
+      - ".gitignore"
+      - "README.md"
       - "backend/**"
+      - "bin/**"
       - "docker/backend/**"
+      - "docker/database/**"
+      - "secrets/**"
       - "compose.yaml"
       - "compose.override.yaml"
-      - "tests/backend-smoke.sh"
-      - "tests/backend-lifecycle.sh"
+      - "tests/**"
       - ".github/workflows/backend-container.yml"
   push:
     branches:
       - main
     paths:
+      - ".env.example"
+      - ".gitignore"
+      - "README.md"
       - "backend/**"
+      - "bin/**"
       - "docker/backend/**"
+      - "docker/database/**"
+      - "secrets/**"
       - "compose.yaml"
       - "compose.override.yaml"
-      - "tests/backend-smoke.sh"
-      - "tests/backend-lifecycle.sh"
+      - "tests/**"
       - ".github/workflows/backend-container.yml"
   workflow_dispatch:
 
@@ -27,14 +37,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: backend-container-${{ github.ref }}
+  group: backend-platform-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  POSTGRES_IMAGE: postgres:18.4-trixie
+
 jobs:
-  smoke:
-    name: Development, production and security tests
+  platform:
+    name: Development production database and security tests
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Check out repository
@@ -45,16 +58,39 @@ jobs:
           docker version
           docker compose version
 
-      - name: Run container smoke tests
+      - name: Run platform smoke tests
         run: sh tests/backend-smoke.sh
 
-      - name: Run container lifecycle tests
+      - name: Run platform lifecycle tests
         run: sh tests/backend-lifecycle.sh
 
-      - name: Scan production image for known vulnerabilities
+      - name: Run database backup and restore tests
+        run: sh tests/database-backup.sh
+
+      - name: Scan production backend image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: symfony-backend:prod
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan production backup image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: symfony-database-backup:prod
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Scan PostgreSQL image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: postgres:18.4-trixie
           format: table
           exit-code: "1"
           ignore-unfixed: true
