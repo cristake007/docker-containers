@@ -1,0 +1,47 @@
+name: Backend container
+
+on:
+  pull_request:
+    paths:
+      - "backend/**"
+      - "docker/backend/**"
+      - "compose.yaml"
+      - "compose.override.yaml"
+      - "tests/backend-smoke.sh"
+      - ".github/workflows/backend-container.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "docker/backend/**"
+      - "compose.yaml"
+      - "compose.override.yaml"
+      - "tests/backend-smoke.sh"
+      - ".github/workflows/backend-container.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: Development and production smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show Docker versions
+        run: |
+          docker version
+          docker compose version
+
+      - name: Run container smoke tests
+        run: sh tests/backend-smoke.sh
