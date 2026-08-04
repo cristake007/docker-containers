@@ -114,12 +114,33 @@ RUN cat > /usr/local/bin/app-entrypoint <<'SH'
 #!/bin/sh
 set -eu
 
-for secretPath in "${APP_SECRET_FILE:-}" "${DATABASE_PASSWORD_FILE:-}"; do
-    if [ -z "$secretPath" ] || [ ! -r "$secretPath" ] || [ ! -s "$secretPath" ]; then
+stage_secret() {
+    source_path="$1"
+    target_name="$2"
+
+    if [ -z "$source_path" ] || [ ! -r "$source_path" ] || [ ! -s "$source_path" ]; then
         echo "Required runtime secret is missing or unreadable." >&2
         exit 1
     fi
-done
+
+    target_directory=/run/app-secrets
+    target_path="$target_directory/$target_name"
+    temporary_path="$target_path.tmp"
+
+    install -d -o root -g www-data -m 0750 "$target_directory"
+    rm -f "$temporary_path"
+    umask 077
+    cat "$source_path" > "$temporary_path"
+    chown root:www-data "$temporary_path"
+    chmod 0640 "$temporary_path"
+    mv -f "$temporary_path" "$target_path"
+
+    printf '%s\n' "$target_path"
+}
+
+APP_SECRET_FILE="$(stage_secret "${APP_SECRET_FILE:-}" app_secret)"
+DATABASE_PASSWORD_FILE="$(stage_secret "${DATABASE_PASSWORD_FILE:-}" database_password)"
+export APP_SECRET_FILE DATABASE_PASSWORD_FILE
 
 if [ "${APP_ENV:-prod}" = "dev" ]; then
     if [ ! -f composer.json ]; then
