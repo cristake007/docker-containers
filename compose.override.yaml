@@ -1,4 +1,24 @@
 services:
+  database:
+    restart: "no"
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  migrate:
+    image: symfony-backend:dev
+    build:
+      target: dev
+      args:
+        BOOTSTRAP_SYMFONY: "1"
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "1"
+      TRUSTED_PROXIES: 127.0.0.1,private_ranges
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:4200}
+    restart: "no"
+    volumes:
+      - ./backend:/var/www/html
+
   backend:
     image: symfony-backend:dev
     build:
@@ -8,6 +28,15 @@ services:
     environment:
       APP_ENV: dev
       APP_DEBUG: "1"
+      TRUSTED_PROXIES: 127.0.0.1,private_ranges
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-http://localhost:4200}
     restart: "no"
     volumes:
       - ./backend:/var/www/html
+
+  database-backup:
+    profiles:
+      - backup
+    restart: "no"
+    environment:
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-3600}
