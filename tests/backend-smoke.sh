@@ -7,12 +7,33 @@ SCRIPT_DIRECTORY="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PROJECT_NAME="${COMPOSE_PROJECT_NAME:-symfony-backend-smoke}"
 DEV_COMPOSE="docker compose -p $PROJECT_NAME"
 PROD_COMPOSE="docker compose -p $PROJECT_NAME -f compose.yaml"
+CURRENT_PHASE="initialization"
+CURRENT_COMPOSE="$DEV_COMPOSE"
 
 prepare_test_environment "$PROJECT_NAME"
 
+set_phase() {
+    CURRENT_PHASE="$1"
+    CURRENT_COMPOSE="$2"
+    printf 'Phase: %s\n' "$CURRENT_PHASE"
+}
+
 cleanup() {
+    status=$?
+    trap - EXIT INT TERM
+
+    if [ "$status" -ne 0 ]; then
+        printf '::error title=Platform smoke failure::Phase: %s\n' "$CURRENT_PHASE" >&2
+        printf 'Smoke test failed during phase: %s\n' "$CURRENT_PHASE" >&2
+        printf '%s\n' 'Container state:' >&2
+        $CURRENT_COMPOSE ps -a >&2 || true
+        printf '%s\n' 'Database, migration and backend logs:' >&2
+        $CURRENT_COMPOSE logs --no-color database migrate backend >&2 || true
+    fi
+
     $DEV_COMPOSE down -v --remove-orphans >/dev/null 2>&1 || true
     remove_test_environment
+    exit "$status"
 }
 
 wait_for_service_health() {
@@ -105,7 +126,7 @@ assert_http_contract() {
 
 trap cleanup EXIT INT TERM
 
-printf '%s\n' 'Validating Compose configurations...'
+set_phase 'Compose configuration validation' "$DEV_COMPOSE"
 $DEV_COMPOSE config --quiet
 $PROD_COMPOSE config --quiet
 
@@ -120,7 +141,7 @@ if $PROD_COMPOSE config | grep -q '/var/www/html'; then
 fi
 
 if [ ! -f backend/composer.lock ]; then
-    printf '%s\n' 'Verifying that production rejects unlocked application source...'
+    set_phase 'Locked production source validation' "$PROD_COMPOSE"
     rejection_log="$(mktemp)"
 
     if $PROD_COMPOSE build backend >"$rejection_log" 2>&1; then
@@ -140,13 +161,18 @@ if [ ! -f backend/composer.lock ]; then
     rm -f "$rejection_log"
 fi
 
-printf '%s\n' 'Building and starting the development platform...'
+set_phase 'Development image build and startup' "$DEV_COMPOSE"
 $DEV_COMPOSE up -d --build backend
+
+set_phase 'Development health and migration checks' "$DEV_COMPOSE"
 wait_for_service_health "$DEV_COMPOSE" database
 wait_for_service_health "$DEV_COMPOSE" backend
 assert_migration_completed "$DEV_COMPOSE"
+
+set_phase 'Development HTTP and CORS contract' "$DEV_COMPOSE"
 assert_http_contract "$DEV_COMPOSE"
 
+set_phase 'Development runtime assertions' "$DEV_COMPOSE"
 $DEV_COMPOSE exec -T backend sh -lc '
     set -eu
 
@@ -182,6 +208,7 @@ $DEV_COMPOSE exec -T backend sh -lc '
     apache2ctl -M 2>/dev/null | grep -q headers_module
 '
 
+set_phase 'Development database port binding' "$DEV_COMPOSE"
 development_database_container="$($DEV_COMPOSE ps -q database)"
 test -n "$development_database_container"
 development_database_binding="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostIp}}:{{(index (index .NetworkSettings.Ports "5432/tcp") 0).HostPort}}' "$development_database_container")"
@@ -189,13 +216,18 @@ test "$development_database_binding" = "127.0.0.1:5432"
 
 $DEV_COMPOSE down -v --remove-orphans
 
-printf '%s\n' 'Building and starting the production platform...'
+set_phase 'Production image build and startup' "$PROD_COMPOSE"
 $PROD_COMPOSE up -d --build backend
+
+set_phase 'Production health and migration checks' "$PROD_COMPOSE"
 wait_for_service_health "$PROD_COMPOSE" database
 wait_for_service_health "$PROD_COMPOSE" backend
 assert_migration_completed "$PROD_COMPOSE"
+
+set_phase 'Production HTTP and CORS contract' "$PROD_COMPOSE"
 assert_http_contract "$PROD_COMPOSE"
 
+set_phase 'Production runtime assertions' "$PROD_COMPOSE"
 $PROD_COMPOSE exec -T backend sh -lc '
     set -eu
 
@@ -289,6 +321,7 @@ $PROD_COMPOSE exec -T backend sh -lc '
     '\''
 '
 
+set_phase 'Production container isolation assertions' "$PROD_COMPOSE"
 production_container="$($PROD_COMPOSE ps -q backend)"
 database_container="$($PROD_COMPOSE ps -q database)"
 
