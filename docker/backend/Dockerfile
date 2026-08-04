@@ -9,7 +9,7 @@ ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
 WORKDIR /var/www/html
 
 RUN set -eux; \
-    savedAptMark="$(apt-mark showmanual | grep -Ev '^(autoconf|dpkg-dev|file|g\+\+|gcc|libc6-dev|make|pkg-config|re2c)$' || true)"; \
+    savedAptMark="$(apt-mark showmanual)"; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
         libicu-dev \
@@ -24,6 +24,7 @@ RUN set -eux; \
     extensionDir="$(php -r 'echo ini_get("extension_dir");')"; \
     apt-mark auto '.*' > /dev/null; \
     apt-mark manual $savedAptMark; \
+    apt-mark auto $PHPIZE_DEPS; \
     ldd "$extensionDir"/*.so \
         | awk '/=>/ { so = $(NF-1); if (index(so, "/usr/local/") == 1) { next } gsub("^/(usr/)?", "", so); print so }' \
         | sort -u \
