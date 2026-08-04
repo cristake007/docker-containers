@@ -17,7 +17,6 @@ RUN apt-get update \
         libzip-dev \
     && docker-php-ext-install -j"$(nproc)" \
         intl \
-        opcache \
         pdo_pgsql \
         zip \
     && apt-get clean \
