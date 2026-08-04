@@ -31,7 +31,7 @@ stage_database_secret() {
     mv -f "$temporary_path" "$target_path"
 
     export DATABASE_PASSWORD_FILE="$target_path"
-    exec gosu postgres "$0" "$@"
+    exec setpriv --reuid=postgres --regid=postgres --init-groups "$0" "$@"
 }
 
 if [ "$(id -u)" -eq 0 ]; then
