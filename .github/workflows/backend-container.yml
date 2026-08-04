@@ -58,9 +58,6 @@ jobs:
           docker version
           docker compose version
 
-      - name: Diagnose platform startup
-        run: sh tests/diagnose-platform-startup.sh
-
       - name: Run platform smoke tests
         run: sh tests/backend-smoke.sh
 
