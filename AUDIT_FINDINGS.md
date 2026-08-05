@@ -81,3 +81,63 @@ Recommendation: enable Symfony login throttling, add explicit rate limiting for 
 The only `.editorconfig` is inside `backend/` and declares `root = true`. Its rule for `compose.yaml` and `compose.*.yaml` therefore cannot apply to the repository-level Compose files it names, and the frontend, Docker, workflow, Nginx, and test files have no shared repository formatting policy.
 
 Recommendation: move the repository-wide rules to `/.editorconfig`; keep backend-specific overrides in a nested file only when they differ.
+
+### F-007 — The advertised task manager has no frontend task implementation
+
+- Severity: High
+- Files: `README.md`, `frontend/src/components/AuthenticatedApp.tsx`, `frontend/src/components/AppSidebar.tsx`, `frontend/src/api/auth.ts`, `frontend/.env.example`, `compose.override.yaml`
+- Category: Functional completeness / architecture mismatch
+
+The repository is presented as a task manager and the backend implements GraphQL task CRUD, but the frontend contains no GraphQL task client, task query, task form, task list, or task mutation. `VITE_GRAPHQL_URL` is configured but never consumed. After authentication every navigation item renders the same placeholder panel; changing sections only changes the heading.
+
+Impact: the primary advertised application workflow is unavailable to users. The task domain can only be exercised manually through raw API requests or the shell smoke test, so the repository is not a complete full-stack task manager despite its documentation and configuration.
+
+Recommendation: either implement the task vertical slice in the frontend and test it through the browser-facing client, or explicitly redefine the repository as an authentication/application-shell reference and remove unused task and GraphQL frontend claims/configuration.
+
+### F-008 — API Platform browser assets are unreachable in the documented Nginx architecture
+
+- Severity: Medium
+- Files: `backend/config/packages/api_platform.yaml`, `backend/composer.json`, `docker/backend/Dockerfile`, `deploy/nginx/app.dev.conf.example`, `deploy/nginx/app.prod.conf.example`
+- Category: Deployment correctness / static asset routing
+
+Development enables GraphiQL, and Composer installs bundle assets under the backend application's `public/` directory. However, the application files exist only inside the PHP-FPM container, while host Nginx routes only `/api` to the front controller and routes every other path to Vite or the exported frontend. There is no shared mount, export step, or Nginx alias for backend public assets such as `/bundles/apiplatform/*`.
+
+Impact: GraphiQL and other API Platform browser UIs can return HTML while their CSS/JavaScript requests are handled by the frontend and return 404 or `index.html`, producing broken styling and MIME-type failures. The current stack smoke test does not request these assets.
+
+Recommendation: make an explicit architecture choice: disable browser UIs entirely, export/mount the required backend public assets to a host-readable location, or add an HTTP-serving layer that can serve the backend public directory. Add an asset request to CI so the chosen design is verified.
+
+### F-009 — Frontend logout reports success even when the server rejects it
+
+- Severity: Medium
+- Files: `frontend/src/api/auth.ts`, `frontend/src/components/AuthenticatedApp.tsx`, `frontend/src/components/AuthenticatedApp.test.tsx`
+- Category: Session correctness / error handling
+
+`logout()` awaits `fetch()` but never checks `response.ok`. `AuthenticatedApp` therefore calls `onLoggedOut()` after any completed HTTP response, including 401, 403, 404, 500, or an invalid reverse-proxy response. Only a transport-level rejection prevents the local state change, and that rejection has no user-facing error handling.
+
+Impact: the UI can show the login screen while the valid httpOnly JWT cookie remains in the browser. A refresh may silently authenticate the user again, and a user can reasonably believe a shared-device session was terminated when it was not.
+
+Recommendation: require a successful response and verify the cookie-clearing contract before changing local authentication state. On failure, keep the authenticated UI state and show an actionable error. Add explicit non-2xx and network-failure tests.
+
+### F-010 — Task collection queries are explicitly unbounded
+
+- Severity: Medium
+- File: `backend/src/Entity/Task.php`
+- Category: Availability / query safety
+
+The GraphQL `QueryCollection` sets `paginationEnabled: false`. Any authenticated account can create an unlimited number of tasks and then request the entire collection in one response. There is no resource-level cap or rate limit in the repository.
+
+Impact: large accounts or automated abuse can force oversized database reads, object hydration, GraphQL serialization, memory use, and response payloads. Because registration is public and unthrottled, this is available to arbitrary remote accounts rather than only trusted operators.
+
+Recommendation: restore pagination with a bounded maximum page size and add appropriate operation/rate limits. Keep collection sizes and GraphQL execution cost measurable.
+
+### F-011 — Build and CI trust mutable third-party references
+
+- Severity: Medium
+- Files: `compose.yaml`, `docker/backend/Dockerfile`, `docker/frontend/Dockerfile`, `tests/stack-smoke.sh`, `.github/workflows/backend-container.yml`, `.github/workflows/frontend.yml`, `.github/workflows/stack-smoke.yml`
+- Category: Supply-chain security / reproducibility
+
+Runtime and build inputs use mutable tags such as `postgres:17-alpine`, `php:*`, `node:22-alpine`, `mlocati/php-extension-installer:2`, `composer:2.10.2`, and `nginx:alpine`. GitHub Actions are referenced by moving major tags such as `actions/checkout@v6` and `actions/setup-node@v4` rather than immutable commit SHAs.
+
+Impact: the same source commit can build or execute different third-party code later without any repository change or review. A compromised or unexpectedly changed upstream tag can enter production images or CI with the repository's trust and credentials.
+
+Recommendation: pin container images by digest and GitHub Actions by reviewed full commit SHA, then update them through an explicit dependency-update process.
