@@ -6,7 +6,9 @@ set -eu
 # config) are what's under test: log in as the env-seeded admin, probe the
 # session, and log out again, over each stack's real nginx front door. The
 # prod phase also proves the HTTP -> HTTPS redirect actually redirects
-# (see AUDIT_FINDINGS.md F-003, F-013).
+# (see AUDIT_FINDINGS.md F-003, F-013). Both phases also probe the API
+# Platform entrypoint the way a real browser would -- see
+# assert_api_entrypoint_ok below for why.
 
 PROJECT_NAME=stack-smoke
 COMPOSE="docker compose -p $PROJECT_NAME"
@@ -65,6 +67,69 @@ run_nginx() {
         nginx:alpine@sha256:4a73073bd557c65b759505da037898b61f1be6cbcc3c2c3aeac22d2a470c1752 >/dev/null
 }
 
+# Regression coverage for bugs that shipped in the checked-in nginx examples
+# and only surfaced when a real browser hit them (see the conversation this
+# was added from): a curl-only smoke test never exercises these failure
+# modes, so they're asserted explicitly here.
+BROWSER_ACCEPT='Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+
+assert_api_entrypoint_ok() {
+    base_url="$1"
+    curl_extra="$2"
+    # "dev": Swagger UI/GraphiQL must actually render, assets included.
+    # "prod": browsing must not crash, but must not render either --
+    # both UIs are disabled there on purpose (see api_platform.yaml).
+    docs_mode="$3"
+
+    # Without `fastcgi_param SCRIPT_NAME /index.php;`, Symfony computes the
+    # wrong base URL for the API Platform entrypoint (the one route with two
+    # optional path segments), nginx redirects bare /api to /api/, and
+    # Symfony's own trailing-slash canonicalization redirects /api/ right
+    # back -- an infinite loop a browser shows as ERR_TOO_MANY_REDIRECTS.
+    # Every other route has a fixed path and never exposes this, so testing
+    # only /api/me (as earlier versions of this script did) misses it
+    # entirely.
+    code="$(curl -s $curl_extra -o /dev/null -w '%{http_code}' "$base_url/api")"
+    [ "$code" = "200" ] || {
+        echo "expected GET $base_url/api to return 200 (the entrypoint document), got $code -- possible SCRIPT_NAME redirect-loop regression" >&2
+        exit 1
+    }
+
+    # A real browser's default Accept header always includes a */* fallback,
+    # so this must never crash regardless of docs_mode.
+    swagger_body="$(curl -s $curl_extra -w '\n%{http_code}' -H "$BROWSER_ACCEPT" "$base_url/api")"
+    swagger_code="$(printf '%s' "$swagger_body" | tail -1)"
+    [ "$swagger_code" = "200" ] || {
+        echo "expected a browser-Accept GET $base_url/api to return 200, got $swagger_code -- possible SwaggerUI/docs_formats regression" >&2
+        exit 1
+    }
+
+    graphiql_body="$(curl -s $curl_extra -w '\n%{http_code}' -H "$BROWSER_ACCEPT" "$base_url/api/graphql")"
+    graphiql_code="$(printf '%s' "$graphiql_body" | tail -1)"
+    [ "$graphiql_code" = "200" ] || {
+        echo "expected a browser-Accept GET $base_url/api/graphql to return 200, got $graphiql_code -- possible GraphiQL regression" >&2
+        exit 1
+    }
+
+    if [ "$docs_mode" = "dev" ]; then
+        printf '%s' "$swagger_body" | grep -qi 'swagger' \
+            || { echo "expected Swagger UI to actually render in dev at $base_url/api" >&2; exit 1; }
+        printf '%s' "$graphiql_body" | grep -qi 'graphiql' \
+            || { echo "expected GraphiQL to actually render in dev at $base_url/api/graphql" >&2; exit 1; }
+
+        code="$(curl -s $curl_extra -o /dev/null -w '%{http_code}' "$base_url/bundles/apiplatform/swagger-ui/swagger-ui-bundle.js")"
+        [ "$code" = "200" ] || { echo "Swagger UI's own JS asset did not load (got $code) -- possible assets:install/nginx alias regression" >&2; exit 1; }
+
+        code="$(curl -s $curl_extra -o /dev/null -w '%{http_code}' "$base_url/bundles/apiplatform/init-graphiql.js")"
+        [ "$code" = "200" ] || { echo "GraphiQL's own JS asset did not load (got $code) -- possible assets:install/nginx alias regression" >&2; exit 1; }
+    else
+        printf '%s' "$swagger_body" | grep -qi 'swagger' \
+            && { echo "Swagger UI rendered in prod -- it must stay disabled there (see api_platform.yaml when@prod)" >&2; exit 1; }
+        printf '%s' "$graphiql_body" | grep -qi 'graphiql' \
+            && { echo "GraphiQL rendered in prod -- it must stay disabled there (see api_platform.yaml when@prod)" >&2; exit 1; }
+    fi
+}
+
 # Real (test-only) values: prod refuses to boot with the placeholder values
 # from the committed root .env (see entrypoint.sh and
 # App\Command\BootstrapAdminCommand), so reusing them here would be testing
@@ -95,6 +160,7 @@ $COMPOSE exec -T backend php bin/console app:bootstrap-admin --no-interaction
 run_nginx "$(pwd)/deploy/nginx/app.dev.conf.example"
 
 wait_for_http "http://127.0.0.1/api/me" 200
+assert_api_entrypoint_ok "http://127.0.0.1" "" "dev"
 
 DEV_JAR="$WORKDIR/dev-cookies.txt"
 
@@ -151,6 +217,7 @@ $PROD_COMPOSE exec -T backend php bin/console app:bootstrap-admin --no-interacti
 run_nginx "$WORKDIR/app.prod.conf"
 
 wait_for_http "https://127.0.0.1/api/me" 200
+assert_api_entrypoint_ok "https://127.0.0.1" "-k" "prod"
 
 # The plain-HTTP listener must redirect, never serve the app (see
 # AUDIT_FINDINGS.md F-003).
@@ -181,4 +248,4 @@ ME_AUTHENTICATED="$(curl -skf https://127.0.0.1/api/me -b "$PROD_JAR" | json_get
 curl -skf -i -X POST https://127.0.0.1/api/logout -b "$PROD_JAR" | grep -qi '^Set-Cookie: BEARER=deleted' \
     || { echo "prod logout did not clear the BEARER cookie" >&2; exit 1; }
 
-printf '%s\n' 'Stack smoke test passed: dev and prod nginx examples, login, case-insensitive email, per-request session, HTTP->HTTPS redirect, and logout all work end-to-end.'
+printf '%s\n' 'Stack smoke test passed: dev and prod nginx examples, the API entrypoint (with dev schema browsing / prod lockdown), login, case-insensitive email, per-request session, HTTP->HTTPS redirect, and logout all work end-to-end.'

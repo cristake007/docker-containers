@@ -34,9 +34,12 @@ directly. This keeps every container minimal and puts exactly one thing
   [API Platform](https://api-platform.com/) is installed and configured but
   exposes no resources yet -- login/logout/me are plain Symfony controllers,
   not API Platform operations. It's kept wired up so a future REST/GraphQL
-  resource can be added with `#[ApiResource]` and just work; GraphiQL is
-  disabled until there's something to browse and a matching asset-serving
-  story (see `backend/config/packages/api_platform.yaml`).
+  resource can be added with `#[ApiResource]` and just work. Its browsable
+  schema UIs (GraphiQL at `/api/graphql`, Swagger UI at `/api`) are enabled
+  **in dev only** -- open either in a browser once the stack and host nginx
+  are up. They're explicitly disabled in prod
+  (`when@prod` in `backend/config/packages/api_platform.yaml`): a production
+  deployment shouldn't let anyone who can reach `/api` browse the schema.
 - **Auth**: `lexik/jwt-authentication-bundle`. The JWT is delivered as an
   **httpOnly, SameSite=Strict cookie** -- it is never readable from
   JavaScript, so an XSS bug in the frontend can't exfiltrate it. There is no
@@ -180,7 +183,11 @@ adjust `server_name` / `root` / TLS certificate paths, then reload nginx:
 
 - [`deploy/nginx/app.dev.conf.example`](./deploy/nginx/app.dev.conf.example) --
   proxies `/` to the Vite dev server and `/api` to the backend's FastCGI
-  port.
+  port, and serves the API Platform browsable-UI assets (GraphiQL/Swagger
+  UI's own JS/CSS) as static files from `backend/public/bundles/apiplatform/`
+  -- fix the `alias` path in the example to match your checkout, and make
+  sure `composer install` has run so that directory exists (it's
+  gitignored, generated).
 - [`deploy/nginx/app.prod.conf.example`](./deploy/nginx/app.prod.conf.example) --
   a plain-HTTP server block that only redirects to HTTPS, plus a TLS server
   block that serves `frontend/dist` as static files at `/` and proxies

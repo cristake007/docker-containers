@@ -8,21 +8,44 @@ api_platform:
         stateless: true
         cache_headers:
             vary: ['Content-Type', 'Authorization', 'Origin', 'Cookie']
+    # Browsable schema UIs (GraphiQL + Swagger UI) are dev-only, on purpose:
+    # they're a development convenience, not something a production
+    # deployment should expose to anyone who can reach /api. The `when@prod`
+    # block below is what actually enforces that -- these are just the dev
+    # defaults. Their JS/CSS come from the api-platform/core bundle's own
+    # public/ assets (symfony/asset + `assets:install`, see composer.json),
+    # served in dev by the `/bundles/apiplatform/` location in
+    # deploy/nginx/app.dev.conf.example -- that location only exists in the
+    # dev example, so this would 404 its own assets in prod even if left on.
+    enable_swagger_ui: true
+    enable_re_doc: false
+    enable_scalar: false
     graphql:
-        # Disabled everywhere, not just in prod: GraphiQL's assets live
-        # under the backend container's public/ dir, but the documented
-        # host-nginx architecture (see deploy/nginx/) only proxies /api to
-        # PHP-FPM and has no route to that directory, so the UI would 404 on
-        # its own CSS/JS the moment it's turned on (see AUDIT_FINDINGS.md
-        # F-008). There are also no resources to browse yet -- re-enable
-        # this deliberately, with a matching asset-serving story, once a
-        # real GraphQL resource exists.
         graphiql:
-            enabled: false
-    # GraphQL introspection is deliberately left enabled (the API Platform
-    # default): with zero resources exposed, the schema currently has
-    # nothing to discover beyond built-in types, so restricting it now
+            enabled: true
+    # GraphQL introspection is deliberately left enabled in dev (the API
+    # Platform default): with zero resources exposed, the schema currently
+    # has nothing to discover beyond built-in types, so restricting it now
     # would be speculative. See AUDIT_FINDINGS.md F-018. Revisit this
     # decision -- disable introspection or require authentication for it --
     # before adding the first real resource whose schema shape shouldn't be
-    # publicly enumerable.
+    # publicly enumerable. Moot in prod: introspection is unreachable there
+    # once GraphiQL and the html doc format are off below.
+
+when@prod:
+    api_platform:
+        enable_swagger_ui: false
+        enable_re_doc: false
+        enable_scalar: false
+        # Drop "html" from the negotiable doc formats too: leaving it in
+        # means a browser's default `Accept: text/html` still gets picked
+        # for content negotiation even with every HTML UI disabled above,
+        # and there is no "html" serializer registered once they're off --
+        # so it would 400 instead of just falling back to JSON-LD.
+        docs_formats:
+            jsonld: ['application/ld+json']
+            jsonopenapi: ['application/vnd.openapi+json']
+            yamlopenapi: ['application/vnd.openapi+yaml']
+        graphql:
+            graphiql:
+                enabled: false

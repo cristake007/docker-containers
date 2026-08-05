@@ -73,6 +73,12 @@ server {
         include fastcgi_params;
         fastcgi_pass 127.0.0.1:9000;
         fastcgi_param SCRIPT_FILENAME /var/www/html/public/index.php;
+        # Required alongside a fixed SCRIPT_FILENAME: fastcgi_params' default
+        # (the request URI itself) makes Symfony compute the wrong base
+        # URL/path info for any route that depends on it -- e.g. the API
+        # Platform entrypoint at exactly /api -- producing a redirect loop
+        # between /api and /api/. This is Symfony's own documented fix.
+        fastcgi_param SCRIPT_NAME /index.php;
         fastcgi_param HTTPS $https if_not_empty;
     }
 
@@ -83,6 +89,7 @@ server {
     #     include fastcgi_params;
     #     fastcgi_pass 127.0.0.1:9000;
     #     fastcgi_param SCRIPT_FILENAME /var/www/html/public/index.php;
+    #     fastcgi_param SCRIPT_NAME /index.php;
     #     fastcgi_param HTTPS $https if_not_empty;
     # }
 }
