@@ -44,6 +44,20 @@ if [ "${APP_ENV:-}" = "prod" ]; then
     fi
 fi
 
+# Dev-only: keep vendor/ and composer's generated assets (`assets:install`,
+# see the auto-scripts in composer.json) in sync with composer.lock on
+# every boot, not just at image build time. Necessary because dev
+# bind-mounts ./backend over the image (see compose.override.yaml): only
+# vendor/ and var/ are separately named-volumed and so auto-populate from
+# the image on first use. Anything else under that bind mount -- e.g. the
+# gitignored, generated public/bundles/ that API Platform's dev-only
+# browsable UIs serve (see backend/config/packages/api_platform.yaml) --
+# reflects whatever's actually on the host, which is nothing on a fresh
+# checkout, silently 404ing those UIs' own JS/CSS.
+if [ "${APP_ENV:-}" = "dev" ]; then
+    composer install --prefer-dist --no-interaction --no-progress --quiet
+fi
+
 JWT_DIR="/var/www/html/config/jwt"
 JWT_PRIVATE="$JWT_DIR/private.pem"
 JWT_PUBLIC="$JWT_DIR/public.pem"
