@@ -115,6 +115,10 @@ $DEV_COMPOSE exec -T backend sh -lc '
     php bin/console doctrine:database:create --env=test --if-not-exists
     php bin/console doctrine:migrations:migrate --no-interaction --env=test >/dev/null
     php bin/phpunit
+    # Static analysis: phpstan-symfony cross-checks service wiring against
+    # the compiled container, so it needs that cache warmed first.
+    php bin/console cache:warmup --env=dev >/dev/null
+    vendor/bin/phpstan analyse --no-progress
 '
 $DEV_COMPOSE down -v --remove-orphans
 

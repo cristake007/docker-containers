@@ -1,0 +1,24 @@
+includes:
+    - vendor/phpstan/phpstan-symfony/extension.neon
+    - vendor/phpstan/phpstan-doctrine/extension.neon
+
+parameters:
+    level: 8
+    paths:
+        - src
+        - tests
+    symfony:
+        containerXmlPath: var/cache/dev/App_KernelDevDebugContainer.xml
+    ignoreErrors:
+        # Symfony's own Kernel base class calls this by convention (reflection
+        # for an optional `getAllowedEnvs()` method), not from anywhere in
+        # this codebase -- a known false positive, not dead code.
+        -
+            message: '#Method App\\Kernel::getAllowedEnvs\(\) is unused\.#'
+            path: src/Kernel.php
+        # Symfony's own symfony/test-pack recipe generates this file
+        # verbatim (defensive version-compat check); not worth hand-editing
+        # generated boilerplate to satisfy a narrowing nitpick.
+        -
+            message: '#Call to function method_exists\(\) with .*Dotenv.* will always evaluate to true\.#'
+            path: tests/bootstrap.php

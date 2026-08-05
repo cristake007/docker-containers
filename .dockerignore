@@ -9,6 +9,7 @@ backend/var
 # build context only ever affects what actually ships in the prod image.
 backend/tests
 backend/phpunit.dist.xml
+backend/phpstan.dist.neon
 backend/.env.test
 backend/bin/phpunit
 frontend/node_modules
