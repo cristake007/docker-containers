@@ -25,8 +25,7 @@ import {
 } from '@/components/ui/tooltip'
 import { ChevronLeftIcon, PanelLeftIcon } from 'lucide-react'
 
-const SIDEBAR_COOKIE_NAME = 'sidebar_state'
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7
+const SIDEBAR_STORAGE_KEY = 'sidebar_state'
 const SIDEBAR_WIDTH = '16rem'
 const SIDEBAR_WIDTH_MOBILE = '18rem'
 const SIDEBAR_WIDTH_ICON = '3rem'
@@ -71,7 +70,12 @@ function SidebarProvider({
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.
-  const [_open, _setOpen] = React.useState(defaultOpen)
+  const [_open, _setOpen] = React.useState(() => {
+    // Client-only preference, so local storage (not a cookie the server
+    // never reads) -- see AUDIT_FINDINGS.md F-016.
+    const stored = window.localStorage.getItem(SIDEBAR_STORAGE_KEY)
+    return stored === null ? defaultOpen : stored === 'true'
+  })
   const open = openProp ?? _open
   const setOpen = React.useCallback(
     (value: boolean | ((value: boolean) => boolean)) => {
@@ -82,8 +86,7 @@ function SidebarProvider({
         _setOpen(openState)
       }
 
-      // This sets the cookie to keep the sidebar state.
-      document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`
+      window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(openState))
     },
     [setOpenProp, open],
   )
@@ -291,7 +294,7 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
             tabIndex={-1}
             onClick={toggleSidebar}
             className={cn(
-              'group/rail absolute top-14 bottom-0 z-20 hidden w-4 items-center justify-center transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-px after:bg-sidebar-border hover:after:bg-[#164194] sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2',
+              'group/rail absolute top-14 bottom-0 z-20 hidden w-4 items-center justify-center transition-all ease-linear group-data-[side=left]:-right-4 group-data-[side=right]:left-0 after:absolute after:inset-y-0 after:start-1/2 after:w-px after:bg-sidebar-border hover:after:bg-primary sm:flex ltr:-translate-x-1/2 rtl:-translate-x-1/2',
               'in-data-[side=left]:cursor-w-resize in-data-[side=right]:cursor-e-resize',
               '[[data-side=left][data-state=collapsed]_&]:cursor-e-resize [[data-side=right][data-state=collapsed]_&]:cursor-w-resize',
               'group-data-[collapsible=offcanvas]:translate-x-0 group-data-[collapsible=offcanvas]:after:left-full hover:group-data-[collapsible=offcanvas]:bg-sidebar',
@@ -301,8 +304,8 @@ function SidebarRail({ className, ...props }: React.ComponentProps<'button'>) {
             )}
             {...props}
           >
-            <span className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border border-sidebar-border bg-sidebar transition-[transform,border-color] group-hover/rail:border-[#164194] group-data-[state=collapsed]:rotate-180">
-              <ChevronLeftIcon className="size-3 !stroke-sidebar-border group-hover/rail:!stroke-[#164194]" />
+            <span className="relative z-10 flex size-5 shrink-0 items-center justify-center rounded-full border border-sidebar-border bg-sidebar transition-[transform,border-color] group-hover/rail:border-primary group-data-[state=collapsed]:rotate-180">
+              <ChevronLeftIcon className="size-3 !stroke-sidebar-border group-hover/rail:!stroke-primary" />
             </span>
           </button>
         }

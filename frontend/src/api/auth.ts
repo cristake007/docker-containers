@@ -1,13 +1,10 @@
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
 
 // Field-level errors are keyed by our form's own field names (`email` /
-// `password`), not the API's property paths -- the register endpoint
-// reports password problems against `plainPassword`, which we normalize
-// here so the same UI code works for both login and register violations.
+// `password`), not the API's property paths.
 const PROPERTY_PATH_TO_FIELD: Record<string, string> = {
   email: 'email',
   password: 'password',
-  plainPassword: 'password',
 }
 
 export class AuthError extends Error {
@@ -47,19 +44,6 @@ async function parseError(response: Response): Promise<AuthError> {
   }
 }
 
-export async function register(email: string, password: string): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/register`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/ld+json' },
-    body: JSON.stringify({ email, plainPassword: password }),
-  })
-
-  if (!response.ok) {
-    throw await parseError(response)
-  }
-}
-
 export async function login(email: string, password: string): Promise<void> {
   const response = await fetch(`${apiBaseUrl}/login`, {
     method: 'POST',
@@ -74,17 +58,39 @@ export async function login(email: string, password: string): Promise<void> {
 }
 
 export async function logout(): Promise<void> {
-  await fetch(`${apiBaseUrl}/logout`, {
+  const response = await fetch(`${apiBaseUrl}/logout`, {
     method: 'POST',
     credentials: 'include',
   })
+
+  if (!response.ok) {
+    throw await parseError(response)
+  }
 }
 
-export async function me(): Promise<{ email: string } | null> {
-  const response = await fetch(`${apiBaseUrl}/me`, { credentials: 'include' })
-  if (!response.ok) {
-    return null
+export type SessionState =
+  | { status: 'authenticated'; email: string }
+  | { status: 'unauthenticated' }
+  | { status: 'error' }
+
+// /api/me always answers 200 when the server is actually reachable (see
+// MeController) -- "not logged in" is carried in the body, not the status
+// code. So any non-2xx response or a rejected fetch means the backend or
+// proxy is unavailable, not that the user is logged out, and callers should
+// keep any known session state and offer a retry instead of showing the
+// login screen.
+export async function me(): Promise<SessionState> {
+  let response: Response
+  try {
+    response = await fetch(`${apiBaseUrl}/me`, { credentials: 'include' })
+  } catch {
+    return { status: 'error' }
   }
+
+  if (!response.ok) {
+    return { status: 'error' }
+  }
+
   const body = await response.json()
-  return body.authenticated ? { email: body.email } : null
+  return body.authenticated ? { status: 'authenticated', email: body.email } : { status: 'unauthenticated' }
 }

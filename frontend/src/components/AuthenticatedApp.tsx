@@ -2,6 +2,7 @@ import { PanelsTopLeftIcon } from 'lucide-react'
 import { useState } from 'react'
 import { logout } from '../api/auth'
 import { AppSidebar, type AppSection } from './AppSidebar'
+import { Alert, AlertDescription } from './ui/alert'
 import { Separator } from './ui/separator'
 import { SidebarInset, SidebarProvider, SidebarTrigger } from './ui/sidebar'
 
@@ -16,12 +17,19 @@ export function AuthenticatedApp({
 }: AuthenticatedAppProps) {
   const [activeSection, setActiveSection] = useState<AppSection>('Overview')
   const [loggingOut, setLoggingOut] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
 
   async function handleLogout() {
     setLoggingOut(true)
+    setLogoutError(null)
     try {
+      // Only clear local auth state once the server confirms the session is
+      // actually gone -- otherwise a valid cookie can outlive a UI that
+      // already looks logged out (see api/auth.ts).
       await logout()
       onLoggedOut()
+    } catch {
+      setLogoutError('Log out failed. Please try again.')
     } finally {
       setLoggingOut(false)
     }
@@ -38,13 +46,19 @@ export function AuthenticatedApp({
       />
       <SidebarInset>
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <SidebarTrigger className="[&_svg]:!stroke-[#164194] hover:[&_svg]:!stroke-[#D41131]" />
+          <SidebarTrigger className="[&_svg]:!stroke-primary hover:[&_svg]:!stroke-destructive" />
           <Separator orientation="vertical" className="h-4" />
           <span className="text-sm font-medium">{activeSection}</span>
         </header>
 
         <div className="flex flex-1 flex-col p-4 sm:p-5 lg:p-6">
           <div className="flex w-full flex-1 flex-col">
+            {logoutError && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertDescription>{logoutError}</AlertDescription>
+              </Alert>
+            )}
+
             <div className="flex min-h-80 flex-1 items-center justify-center border border-dashed bg-muted/20 p-8 text-center">
               <div className="max-w-sm">
                 <span className="mx-auto flex size-11 items-center justify-center border bg-background text-muted-foreground">

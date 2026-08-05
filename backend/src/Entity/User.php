@@ -2,44 +2,29 @@
 
 namespace App\Entity;
 
-use ApiPlatform\Metadata\ApiResource;
-use ApiPlatform\Metadata\Post;
 use App\Repository\UserRepository;
-use App\State\UserRegisterProcessor;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Validator\Constraints\UniqueEntity;
 use Symfony\Component\Security\Core\User\PasswordAuthenticatedUserInterface;
 use Symfony\Component\Security\Core\User\UserInterface;
-use Symfony\Component\Serializer\Attribute\Groups;
 use Symfony\Component\Uid\Uuid;
-use Symfony\Component\Validator\Constraints as Assert;
 
+/**
+ * Not an ApiResource: there is no public write path to User. The only
+ * account is the admin seeded by App\Command\BootstrapAdminCommand from
+ * ADMIN_EMAIL / ADMIN_PASSWORD; login/logout/me are plain Symfony security,
+ * not API Platform operations.
+ */
 #[ORM\Entity(repositoryClass: UserRepository::class)]
 #[ORM\Table(name: '`user`')]
 #[UniqueEntity(fields: ['email'], message: 'An account with this email already exists.')]
-#[ApiResource(
-    operations: [
-        new Post(
-            uriTemplate: '/register',
-            processor: UserRegisterProcessor::class,
-            security: "is_granted('PUBLIC_ACCESS')",
-        ),
-    ],
-    normalizationContext: ['groups' => ['user:read']],
-    denormalizationContext: ['groups' => ['user:write']],
-    graphQlOperations: [],
-)]
 class User implements UserInterface, PasswordAuthenticatedUserInterface
 {
     #[ORM\Id]
     #[ORM\Column(type: 'uuid', unique: true)]
-    #[Groups(['user:read'])]
     private Uuid $id;
 
     #[ORM\Column(length: 180, unique: true)]
-    #[Groups(['user:read', 'user:write'])]
-    #[Assert\NotBlank]
-    #[Assert\Email]
     private string $email = '';
 
     /**
@@ -47,14 +32,6 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
      */
     #[ORM\Column]
     private string $password = '';
-
-    /**
-     * Write-only: consumed by UserRegisterProcessor and never persisted as-is.
-     */
-    #[Groups(['user:write'])]
-    #[Assert\NotBlank]
-    #[Assert\Length(min: 8, max: 4096)]
-    private ?string $plainPassword = null;
 
     /**
      * @var list<string>
@@ -77,6 +54,11 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this->email;
     }
 
+    /**
+     * Callers must pass an already-canonicalized (lowercased, trimmed)
+     * address -- see App\Command\BootstrapAdminCommand -- so identity
+     * lookups never depend on reproducing original casing.
+     */
     public function setEmail(string $email): static
     {
         $this->email = $email;
@@ -125,23 +107,12 @@ class User implements UserInterface, PasswordAuthenticatedUserInterface
         return $this;
     }
 
-    public function getPlainPassword(): ?string
-    {
-        return $this->plainPassword;
-    }
-
-    public function setPlainPassword(?string $plainPassword): static
-    {
-        $this->plainPassword = $plainPassword;
-
-        return $this;
-    }
-
     /**
      * @see UserInterface
      */
     public function eraseCredentials(): void
     {
-        $this->plainPassword = null;
+        // No plaintext credential is ever held on this object: the admin
+        // password is hashed immediately in BootstrapAdminCommand.
     }
 }

@@ -16,8 +16,25 @@
 #       docker build -f docker/frontend/Dockerfile --target export \
 #         --output type=local,dest=./frontend/dist .
 
+# Optional complement to the app's own login_throttling (see
+# backend/config/packages/security.yaml): a per-IP request-rate cap in front
+# of it. `zone=login:10m` tracks ~160k distinct IPs; `rate=1r/s` with a small
+# `burst` still lets a real user retry a typo without being limited by nginx
+# before the app-level limiter (which is keyed by username+IP) ever sees it.
+# limit_req_zone $binary_remote_addr zone=login:10m rate=1r/s;
+
+# Plain HTTP: redirect everything to HTTPS. Credentials must never be
+# accepted on this listener -- do not add any application location here.
 server {
     listen 80;
+    server_name your-domain.example;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
     listen 443 ssl;
     server_name your-domain.example;
 
@@ -48,14 +65,24 @@ server {
         try_files $uri /index.html;
     }
 
-    # Symfony API (REST registration/login + GraphQL), served by PHP-FPM in
-    # the backend container. The application files live inside that
-    # container, not on this host, so SCRIPT_FILENAME is fixed rather than
-    # derived from $document_root/try_files.
+    # Symfony API (login + GraphQL), served by PHP-FPM in the backend
+    # container. The application files live inside that container, not on
+    # this host, so SCRIPT_FILENAME is fixed rather than derived from
+    # $document_root/try_files.
     location /api {
         include fastcgi_params;
         fastcgi_pass 127.0.0.1:9000;
         fastcgi_param SCRIPT_FILENAME /var/www/html/public/index.php;
         fastcgi_param HTTPS $https if_not_empty;
     }
+
+    # Uncomment alongside the limit_req_zone above to add a per-IP request
+    # cap in front of the app's own login_throttling.
+    # location /api/login {
+    #     limit_req zone=login burst=5 nodelay;
+    #     include fastcgi_params;
+    #     fastcgi_pass 127.0.0.1:9000;
+    #     fastcgi_param SCRIPT_FILENAME /var/www/html/public/index.php;
+    #     fastcgi_param HTTPS $https if_not_empty;
+    # }
 }

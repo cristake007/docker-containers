@@ -84,7 +84,7 @@ export function AppSidebar({
                     type="button"
                     tooltip={item.title}
                     isActive={activeSection === item.title}
-                    className="text-[#164194] hover:!text-[#D41131] data-active:!text-[#D41131] [&_svg]:text-[#164194] hover:[&_svg]:!text-[#D41131] data-active:[&_svg]:!text-[#D41131]"
+                    className="text-primary hover:!text-destructive data-active:!text-destructive [&_svg]:text-primary hover:[&_svg]:!text-destructive data-active:[&_svg]:!text-destructive"
                     onClick={() => onNavigate(item.title)}
                   >
                     <item.icon />

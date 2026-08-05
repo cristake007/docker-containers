@@ -1,11 +1,28 @@
 api_platform:
-    title: Task Manager API
+    # No resources are exposed yet: login/logout/me are plain Symfony
+    # controllers, not API Platform operations. Kept configured so a future
+    # REST/GraphQL resource can be added with #[ApiResource] and just work.
+    title: Application API
     version: 1.0.0
     defaults:
         stateless: true
         cache_headers:
             vary: ['Content-Type', 'Authorization', 'Origin', 'Cookie']
     graphql:
-        # The browsable GraphiQL UI is a debugging aid: keep it out of prod.
+        # Disabled everywhere, not just in prod: GraphiQL's assets live
+        # under the backend container's public/ dir, but the documented
+        # host-nginx architecture (see deploy/nginx/) only proxies /api to
+        # PHP-FPM and has no route to that directory, so the UI would 404 on
+        # its own CSS/JS the moment it's turned on (see AUDIT_FINDINGS.md
+        # F-008). There are also no resources to browse yet -- re-enable
+        # this deliberately, with a matching asset-serving story, once a
+        # real GraphQL resource exists.
         graphiql:
-            enabled: '%kernel.debug%'
+            enabled: false
+    # GraphQL introspection is deliberately left enabled (the API Platform
+    # default): with zero resources exposed, the schema currently has
+    # nothing to discover beyond built-in types, so restricting it now
+    # would be speculative. See AUDIT_FINDINGS.md F-018. Revisit this
+    # decision -- disable introspection or require authentication for it --
+    # before adding the first real resource whose schema shape shouldn't be
+    # publicly enumerable.

@@ -4,7 +4,7 @@ import { AuthenticatedApp } from './AuthenticatedApp'
 import { TooltipProvider } from './ui/tooltip'
 
 const { logout } = vi.hoisted(() => ({
-  logout: vi.fn().mockResolvedValue(undefined),
+  logout: vi.fn(),
 }))
 
 vi.mock('../api/auth', () => ({ logout }))
@@ -27,6 +27,7 @@ beforeAll(() => {
 
 describe('AuthenticatedApp', () => {
   it('renders the sidebar, navigates, and logs out', async () => {
+    logout.mockResolvedValueOnce(undefined)
     const onLoggedOut = vi.fn()
 
     render(
@@ -48,5 +49,23 @@ describe('AuthenticatedApp', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open user menu' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Log out' }))
     await waitFor(() => expect(onLoggedOut).toHaveBeenCalledOnce())
+  })
+
+  it('keeps the authenticated view and shows an error when logout fails', async () => {
+    logout.mockRejectedValueOnce(new Error('Server error'))
+    const onLoggedOut = vi.fn()
+
+    render(
+      <TooltipProvider>
+        <AuthenticatedApp email="user@example.com" onLoggedOut={onLoggedOut} />
+      </TooltipProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open user menu' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Log out' }))
+
+    expect(await screen.findByText('Log out failed. Please try again.')).toBeInTheDocument()
+    expect(onLoggedOut).not.toHaveBeenCalled()
+    expect(screen.getByText('user@example.com')).toBeInTheDocument()
   })
 })

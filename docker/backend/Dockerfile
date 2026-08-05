@@ -2,9 +2,13 @@
 
 ARG PHP_VERSION=8.5.9
 
-FROM mlocati/php-extension-installer:2 AS extension-installer
+# Pinned by digest, not just a mutable tag: the same source commit should
+# build the same third-party code later, not silently pull in whatever a
+# tag happens to point to by then (see AUDIT_FINDINGS.md F-011). Bumping
+# PHP_VERSION or either digest is a deliberate, reviewed change.
+FROM mlocati/php-extension-installer:2@sha256:b6d3fa381b9ba5cf051117c1c601d6a523b590e534bf3d56eb4fbe352949c138 AS extension-installer
 
-FROM php:${PHP_VERSION}-fpm-trixie AS base
+FROM php:${PHP_VERSION}-fpm-trixie@sha256:227ae08b7b6c5cbec7d4048ed7e45cd608c323d151573f83c0e7ec06c5787b79 AS base
 
 COPY --from=extension-installer /usr/bin/install-php-extensions /usr/local/bin/
 RUN install-php-extensions pdo_pgsql intl
@@ -35,7 +39,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git unzip \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=composer:2.10.2 /usr/bin/composer /usr/local/bin/composer
+COPY --from=composer:2.10.2@sha256:4d71c3c2109c61d5415544264b59ad4087e4c5b7244481723664138fd36d5040 /usr/bin/composer /usr/local/bin/composer
 COPY backend/ ./
 RUN composer install --prefer-dist --no-interaction --no-progress
 
@@ -52,7 +56,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends unzip \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=composer:2.10.2 /usr/bin/composer /usr/local/bin/composer
+COPY --from=composer:2.10.2@sha256:4d71c3c2109c61d5415544264b59ad4087e4c5b7244481723664138fd36d5040 /usr/bin/composer /usr/local/bin/composer
 COPY backend/ ./
 RUN composer validate --strict --no-check-publish \
     && composer audit --locked --no-interaction \

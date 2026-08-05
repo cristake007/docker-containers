@@ -109,32 +109,32 @@ export function NavUser({
             <DropdownMenuGroup>
               <DropdownMenuItem
                 data-current={activeSection === 'Settings'}
-                className="group/user-menu-item cursor-pointer text-[#164194] hover:!text-[#D41131] focus:!text-[#D41131] data-[current=true]:!text-[#D41131]"
+                className="group/user-menu-item cursor-pointer text-primary hover:!text-destructive focus:!text-destructive data-[current=true]:!text-destructive"
                 onClick={() => onNavigate('Settings')}
               >
                 <BadgeCheckIcon
-                  className={`group-hover/user-menu-item:!stroke-[#D41131] group-focus/user-menu-item:!stroke-[#D41131] ${activeSection === 'Settings' ? '!stroke-[#D41131]' : '!stroke-[#164194]'}`}
+                  className={`group-hover/user-menu-item:!stroke-destructive group-focus/user-menu-item:!stroke-destructive ${activeSection === 'Settings' ? '!stroke-destructive' : '!stroke-primary'}`}
                 />
                 Account
               </DropdownMenuItem>
               <DropdownMenuItem
                 data-current={activeSection === 'Inbox'}
-                className="group/user-menu-item cursor-pointer text-[#164194] hover:!text-[#D41131] focus:!text-[#D41131] data-[current=true]:!text-[#D41131]"
+                className="group/user-menu-item cursor-pointer text-primary hover:!text-destructive focus:!text-destructive data-[current=true]:!text-destructive"
                 onClick={() => onNavigate('Inbox')}
               >
                 <BellIcon
-                  className={`group-hover/user-menu-item:!stroke-[#D41131] group-focus/user-menu-item:!stroke-[#D41131] ${activeSection === 'Inbox' ? '!stroke-[#D41131]' : '!stroke-[#164194]'}`}
+                  className={`group-hover/user-menu-item:!stroke-destructive group-focus/user-menu-item:!stroke-destructive ${activeSection === 'Inbox' ? '!stroke-destructive' : '!stroke-primary'}`}
                 />
                 Notifications
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem
-              className="group/user-menu-item cursor-pointer text-[#164194] hover:!text-[#D41131] focus:!text-[#D41131]"
+              className="group/user-menu-item cursor-pointer text-primary hover:!text-destructive focus:!text-destructive"
               disabled={loggingOut}
               onClick={onLogout}
             >
-              <LogOutIcon className="!stroke-[#164194] group-hover/user-menu-item:!stroke-[#D41131] group-focus/user-menu-item:!stroke-[#D41131]" />
+              <LogOutIcon className="!stroke-primary group-hover/user-menu-item:!stroke-destructive group-focus/user-menu-item:!stroke-destructive" />
               {loggingOut ? 'Logging out…' : 'Log out'}
             </DropdownMenuItem>
           </DropdownMenuContent>

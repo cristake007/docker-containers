@@ -3,10 +3,13 @@ security:
         App\Entity\User: 'auto'
 
     providers:
+        # No `property:` here on purpose: that option forces an exact-match
+        # lookup, which would make login case-sensitive on email. Omitting
+        # it makes Symfony call App\Repository\UserRepository::loadUserByIdentifier
+        # instead, which compares case-insensitively.
         app_user_provider:
             entity:
                 class: App\Entity\User
-                property: email
 
     firewalls:
         dev:
@@ -23,6 +26,13 @@ security:
                 password_path: password
                 success_handler: lexik_jwt_authentication.handler.authentication_success
                 failure_handler: lexik_jwt_authentication.handler.authentication_failure
+            # Bounds password-guessing/credential-stuffing against the single
+            # admin account. Limits are keyed by username + client IP, so a
+            # remote attacker can't lock out the legitimate admin by hammering
+            # from elsewhere.
+            login_throttling:
+                max_attempts: 5
+                interval: '15 minutes'
 
         api:
             pattern: ^/api
@@ -31,10 +41,9 @@ security:
             logout:
                 path: /api/logout
 
-    # Fine-grained access rules live on each API Platform operation
-    # (see the `security` attribute on the User/Task resources), so that
-    # public operations like registration coexist with per-resource
-    # ownership checks. Only the login path is pinned here.
+    # There is no public registration: the only account is the admin seeded
+    # by App\Command\BootstrapAdminCommand from ADMIN_EMAIL / ADMIN_PASSWORD
+    # (see README). Only the login path itself needs to be public.
     access_control:
         - { path: ^/api/login, roles: PUBLIC_ACCESS }
 

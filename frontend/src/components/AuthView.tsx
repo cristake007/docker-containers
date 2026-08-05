@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from 'react'
-import { AuthError, login, register } from '../api/auth'
+import { AuthError, login } from '../api/auth'
 import { Alert, AlertDescription } from './ui/alert'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -22,23 +22,15 @@ function validateEmail(value: string): string | undefined {
 
 function validatePassword(value: string): string | undefined {
   if (!value) return 'Password is required.'
-  if (value.length < 8) return 'Password must be at least 8 characters.'
   return undefined
 }
 
 export function AuthView({ onAuthenticated }: AuthViewProps) {
-  const [mode, setMode] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-
-  function switchMode() {
-    setFormError(null)
-    setFieldErrors({})
-    setMode(mode === 'login' ? 'register' : 'login')
-  }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -56,9 +48,6 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
 
     setSubmitting(true)
     try {
-      if (mode === 'register') {
-        await register(email, password)
-      }
       await login(email, password)
       onAuthenticated(email)
     } catch (err) {
@@ -81,11 +70,9 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
             Workspace
           </span>
 
-          <h1 className="text-2xl font-bold">{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
+          <h1 className="text-2xl font-bold">Sign in</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {mode === 'login'
-              ? 'Welcome back. Enter your details to continue.'
-              : 'Set up an account to enter your workspace.'}
+            Welcome back. Enter your details to continue.
           </p>
 
           {formError && (
@@ -130,7 +117,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
                     setFieldErrors((prev) => ({ ...prev, password: undefined }))
                   }
                 }}
-                autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                autoComplete="current-password"
                 aria-invalid={Boolean(fieldErrors.password)}
                 aria-describedby={fieldErrors.password ? 'password-error' : undefined}
               />
@@ -142,13 +129,9 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
             </div>
 
             <Button type="submit" disabled={submitting} className="mt-1 w-full">
-              {mode === 'login' ? 'Log in' : 'Create account'}
+              Log in
             </Button>
           </form>
-
-          <Button type="button" variant="link" size="sm" className="mt-6 px-0" onClick={switchMode}>
-            {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Log in'}
-          </Button>
         </div>
       </div>
 

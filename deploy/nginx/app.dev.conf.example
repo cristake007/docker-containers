@@ -7,7 +7,7 @@
 # extra configuration.
 #
 # Usage: copy to your nginx sites-available (e.g.
-# /etc/nginx/sites-available/tasks.dev), symlink into sites-enabled, adjust
+# /etc/nginx/sites-available/app.dev), symlink into sites-enabled, adjust
 # server_name if needed, then reload nginx.
 #
 # Prerequisite: `docker compose up` running, which publishes:
@@ -26,7 +26,7 @@ map $http_upgrade $connection_upgrade {
 
 server {
     listen 80;
-    server_name tasks.localhost;
+    server_name app.localhost;
 
     # gzip_proxied defaults to "off", which silently disables compression
     # for anything coming from proxy_pass/fastcgi_pass -- i.e. everything
@@ -47,7 +47,7 @@ server {
         proxy_set_header Host $host;
     }
 
-    # Symfony API (REST registration/login + GraphQL), served by PHP-FPM in
+    # Symfony API (login + GraphQL), served by PHP-FPM in
     # the backend container. The application files live inside that
     # container, not on this host, so SCRIPT_FILENAME is fixed rather than
     # derived from $document_root/try_files.

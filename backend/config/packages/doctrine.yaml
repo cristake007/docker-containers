@@ -1,10 +1,20 @@
 doctrine:
     dbal:
-        url: '%env(resolve:DATABASE_URL)%'
-
-        # IMPORTANT: You MUST configure your server version,
-        # either here or in the DATABASE_URL env var (see .env file)
-        #server_version: '16'
+        # Discrete connection parameters rather than a single DATABASE_URL:
+        # a URL has to be assembled by percent-encoding each component, and
+        # Docker Compose variable interpolation cannot do that -- a
+        # POSTGRES_PASSWORD containing a URI-reserved character (`@`, `:`,
+        # `/`, `?`, `#`, `%`) would silently change the parsed host, path,
+        # or password. Passing each value straight through as its own
+        # parameter has no such parsing step.
+        driver: pdo_pgsql
+        host: '%env(POSTGRES_HOST)%'
+        port: '%env(int:POSTGRES_PORT)%'
+        dbname: '%env(POSTGRES_DB)%'
+        user: '%env(POSTGRES_USER)%'
+        password: '%env(POSTGRES_PASSWORD)%'
+        server_version: '17'
+        charset: utf8
 
         profiling_collect_backtrace: '%kernel.debug%'
         types:

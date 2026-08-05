@@ -56,10 +56,15 @@ assert_loopback_only_port() {
 
 # Real (test-only) secrets for the prod run: prod refuses to boot with the
 # placeholder values from the committed root .env (see entrypoint.sh), so
-# reusing them here would be testing the wrong thing.
-export APP_SECRET=ci-smoke-test-app-secret
-export JWT_PASSPHRASE=ci-smoke-test-jwt-passphrase
-export POSTGRES_PASSWORD=ci-smoke-test-postgres-password
+# reusing them here would be testing the wrong thing. APP_SECRET,
+# JWT_PASSPHRASE, and POSTGRES_PASSWORD must clear the 32-character minimum
+# entrypoint.sh enforces; ADMIN_PASSWORD only needs the 8-character floor
+# BootstrapAdminCommand enforces.
+export APP_SECRET=ci-smoke-test-app-secret-32-characters-plus
+export JWT_PASSPHRASE=ci-smoke-test-jwt-passphrase-32-characters-plus
+export POSTGRES_PASSWORD=ci-smoke-test-postgres-password-32-chars-plus
+export ADMIN_EMAIL=ci-smoke-test-admin@example.com
+export ADMIN_PASSWORD=ci-smoke-test-admin-password
 export CORS_ALLOW_ORIGIN='^https://ci-smoke-test\.example$'
 
 $DEV_COMPOSE config --quiet
@@ -103,6 +108,13 @@ $DEV_COMPOSE exec -T backend sh -lc '
     composer validate --strict --no-check-publish
     composer check-platform-reqs
     composer audit --locked --no-interaction
+    # PHPUnit functional tests: exercise security/auth boundaries directly
+    # against the framework, independent of the container-level checks
+    # above and the HTTP-level checks in stack-smoke.sh (see
+    # AUDIT_FINDINGS.md F-014).
+    php bin/console doctrine:database:create --env=test --if-not-exists
+    php bin/console doctrine:migrations:migrate --no-interaction --env=test >/dev/null
+    php bin/phpunit
 '
 $DEV_COMPOSE down -v --remove-orphans
 

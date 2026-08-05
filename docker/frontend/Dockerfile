@@ -2,7 +2,9 @@
 
 ARG NODE_VERSION=22
 
-FROM node:${NODE_VERSION}-alpine AS deps
+# Pinned by digest, not just a mutable tag (see AUDIT_FINDINGS.md F-011):
+# bumping NODE_VERSION or the digest is a deliberate, reviewed change.
+FROM node:${NODE_VERSION}-alpine@sha256:c610fcdfb1d5b4740dd70c284ed3cb16bb857e0f7166196e36a5501df7a3aa32 AS deps
 
 WORKDIR /app
 

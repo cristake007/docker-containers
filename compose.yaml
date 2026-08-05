@@ -2,7 +2,7 @@ name: symfony-backend
 
 services:
   db:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -26,6 +26,10 @@ services:
       dockerfile: docker/backend/Dockerfile
       target: prod
       args:
+        # The base image is pinned by digest in docker/backend/Dockerfile
+        # for that exact tag -- overriding PHP_VERSION here without also
+        # updating that digest will fail the build on purpose rather than
+        # silently pull an unpinned image.
         PHP_VERSION: ${PHP_VERSION:-8.5.9}
     depends_on:
       db:
@@ -34,9 +38,17 @@ services:
       APP_ENV: prod
       APP_DEBUG: "0"
       APP_SECRET: ${APP_SECRET}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?serverVersion=17&charset=utf8
+      # Discrete connection parameters, not an assembled DATABASE_URL: see
+      # the comment in backend/config/packages/doctrine.yaml for why.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_PASSPHRASE: ${JWT_PASSPHRASE}
       JWT_COOKIE_SECURE: "1"
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       CORS_ALLOW_ORIGIN: ${CORS_ALLOW_ORIGIN}
     # Bound to loopback only: the host's own nginx reverse-proxies to this
     # FastCGI port (see deploy/nginx/app.prod.conf.example). Never publish
