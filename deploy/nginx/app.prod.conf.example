@@ -30,6 +30,15 @@ server {
     # Only once you have a real certificate and are actually serving HTTPS:
     # add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
 
+    # gzip_proxied defaults to "off", which silently disables compression for
+    # anything from fastcgi_pass (the /api location below). Static files
+    # under root are compressed regardless, but this keeps both paths covered.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+
     root /path/to/docker-containers/frontend/dist;
     index index.html;
 

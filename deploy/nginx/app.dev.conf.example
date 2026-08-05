@@ -14,16 +14,36 @@
 #   - backend (dev, PHP-FPM)  -> 127.0.0.1:9000
 #   - frontend (dev, Vite)    -> 127.0.0.1:5173
 
+# $http_upgrade is only "websocket" on Vite's HMR handshake; every other
+# request has it empty. Hardcoding `Connection: upgrade` for all requests
+# (instead of this map) forces nginx into tunnel mode for every plain JS/CSS
+# fetch too, which kills upstream keep-alive and makes the dev server feel
+# far slower than it is.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
 server {
     listen 80;
     server_name tasks.localhost;
+
+    # gzip_proxied defaults to "off", which silently disables compression
+    # for anything coming from proxy_pass/fastcgi_pass -- i.e. everything
+    # this server block serves. Without it, `gzip on` in the main nginx.conf
+    # has no effect here.
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
 
     # React dev server (Vite) -- includes the HMR websocket upgrade.
     location / {
         proxy_pass http://127.0.0.1:5173;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection $connection_upgrade;
         proxy_set_header Host $host;
     }
 
