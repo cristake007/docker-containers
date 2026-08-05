@@ -2,13 +2,26 @@
 
 - Repository: `cristake007/docker-containers`
 - Audited base: `main`
+- Audited commit: `fc4c17967e93ab06cdc728970b616ae2538c9435`
 - Audit branch: `audit/full-project-2026-08-05`
 - Started: 2026-08-05
+- Completed: 2026-08-05
 - Scope: every tracked file, with repeated security, correctness, maintainability, deployment, and test-coverage passes.
 
 ## Status
 
-Audit in progress. Findings are appended when confirmed rather than collected only at the end.
+Completed. `main` remained at the audited commit through the final verification pass. No application file was modified; this audit branch adds only this report.
+
+## Summary
+
+| Severity | Count |
+| --- | ---: |
+| High | 3 |
+| Medium | 11 |
+| Low | 7 |
+| **Confirmed total** | **21** |
+
+One additional product/security ambiguity requires an owner decision.
 
 ## Confirmed findings
 
@@ -277,3 +290,23 @@ Anyone reaching the application can create an account and immediately receives e
 This is correct for a public self-service task application, but it is a high-impact access-control defect if the intended product is private or internal. The repository does not state this decision clearly enough to resolve the ambiguity.
 
 Required decision: explicitly classify the application as public self-registration or restricted membership, then enforce and test that policy. Registration abuse controls from F-005 remain necessary in either model.
+
+## Prioritized remediation order
+
+1. **Immediate:** F-003, F-001, and F-007. Prevent plaintext authentication, enforce real production secrets, and resolve whether this is a working task application or only an application-shell reference.
+2. **Next security/correctness pass:** F-008, F-009, F-012, F-002, F-004, F-005, F-010, F-013, F-014, and F-015.
+3. **Hardening and cleanup:** F-011 and the low-severity findings, after the runtime and product gaps above are resolved.
+4. Resolve A-001 before choosing the final registration and deployment architecture.
+
+## Verification performed
+
+- Reviewed every one of the 86 tracked files at the audited commit, including generated lockfiles, shell scripts, workflows, Dockerfiles, Compose files, Symfony configuration/source, migrations, React source/tests, generated UI primitives, Nginx examples, and documentation.
+- Repeated cross-file passes for security boundaries, authentication/session behavior, deployment architecture, configuration/documentation consistency, duplication, failure paths, and test coverage.
+- Reviewed the exact locked dependency metadata and upstream Lexik JWT 3.2.0 key-generation behavior for F-012.
+- Confirmed the Frontend and Stack smoke GitHub Actions succeeded on the audited commit. The latest Backend container workflow also succeeded on its most recent triggering commit immediately before it; the audited frontend-only commit did not trigger that path-filtered workflow.
+- Existing CI success was treated as proof of the tested happy paths only, not as proof that untested production routing and failure paths are correct.
+- A local checkout/test rerun was attempted, but the audit execution environment could not resolve GitHub for a clone/download. No local runtime result is claimed; dynamic evidence in this report comes from the repository's recorded GitHub Actions runs and source-level contract analysis.
+
+## Scope boundary
+
+This is a complete static audit of the tracked repository at the named commit plus a review of its recorded CI executions. It does not assess untracked deployment files, host Nginx configuration actually installed on a server, external secret storage, cloud/network controls, live database contents, or runtime infrastructure outside this repository.
