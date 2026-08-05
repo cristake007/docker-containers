@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react'
 import { AuthError, login, register } from '../api/auth'
+import { Alert, AlertDescription } from './ui/alert'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
@@ -73,29 +74,24 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
   }
 
   return (
-    <div className="grid min-h-dvh grid-cols-1 bg-white text-black md:grid-cols-[1fr_3fr]">
+    <div className="grid min-h-dvh grid-cols-1 md:grid-cols-[1fr_3fr]">
       <div className="relative z-10 flex items-center justify-center px-6 py-10 sm:px-8 md:shadow-[8px_0_24px_-8px_rgb(0_0_0_/_0.25)] lg:px-10">
         <div className="w-full max-w-xs">
-          <span className="mb-8 block text-xl font-extrabold tracking-tight text-brand-blue md:hidden">
+          <span className="mb-8 block text-xl font-extrabold tracking-tight text-primary md:hidden">
             Tasks
           </span>
 
-          <h1 className="text-2xl font-bold text-black">
-            {mode === 'login' ? 'Sign in' : 'Create account'}
-          </h1>
-          <p className="mt-2 text-sm text-black/60">
+          <h1 className="text-2xl font-bold">{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
             {mode === 'login'
               ? 'Welcome back. Enter your details to continue.'
               : 'Set up an account to start tracking work.'}
           </p>
 
           {formError && (
-            <div
-              role="alert"
-              className="mt-5 rounded-lg border border-brand-red/30 bg-brand-red/5 px-4 py-3 text-sm font-medium text-brand-red"
-            >
-              {formError}
-            </div>
+            <Alert variant="destructive" className="mt-5">
+              <AlertDescription>{formError}</AlertDescription>
+            </Alert>
           )}
 
           <form onSubmit={handleSubmit} noValidate className="mt-6 flex flex-col gap-4">
@@ -116,7 +112,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
                 aria-describedby={fieldErrors.email ? 'email-error' : undefined}
               />
               {fieldErrors.email && (
-                <p id="email-error" className="text-sm text-brand-red">
+                <p id="email-error" className="text-sm text-destructive">
                   {fieldErrors.email}
                 </p>
               )}
@@ -139,7 +135,7 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
                 aria-describedby={fieldErrors.password ? 'password-error' : undefined}
               />
               {fieldErrors.password && (
-                <p id="password-error" className="text-sm text-brand-red">
+                <p id="password-error" className="text-sm text-destructive">
                   {fieldErrors.password}
                 </p>
               )}
@@ -150,27 +146,23 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
             </Button>
           </form>
 
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="mt-6 text-black/60 hover:text-brand-blue"
-            onClick={switchMode}
-          >
+          <Button type="button" variant="link" size="sm" className="mt-6 px-0" onClick={switchMode}>
             {mode === 'login' ? 'Need an account? Register' : 'Already have an account? Log in'}
           </Button>
         </div>
       </div>
 
-      <div className="relative hidden overflow-hidden bg-brand-blue px-16 py-16 md:flex md:flex-col md:justify-between lg:px-20">
+      <div className="relative hidden overflow-hidden bg-primary px-16 py-16 md:flex md:flex-col md:justify-between lg:px-20">
         <div
           aria-hidden
           className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:28px_28px]"
         />
-        <span className="relative text-4xl font-extrabold tracking-tight text-white lg:text-5xl">
+        <span className="relative text-4xl font-extrabold tracking-tight text-primary-foreground lg:text-5xl">
           Tasks
         </span>
-        <p className="relative max-w-[22ch] text-lg text-white/80">Keep your work moving.</p>
+        <p className="relative max-w-[22ch] text-lg text-primary-foreground/80">
+          Keep your work moving.
+        </p>
       </div>
     </div>
   )

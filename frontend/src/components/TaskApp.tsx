@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from '@apollo/client/react'
+import { ListTodoIcon } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
 import { logout } from '../api/auth'
 import {
@@ -8,8 +9,12 @@ import {
   TASKS_QUERY,
   UPDATE_TASK_MUTATION,
 } from '../graphql/tasks'
+import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { Button } from './ui/button'
+import { Card, CardContent } from './ui/card'
+import { Checkbox } from './ui/checkbox'
 import { Input } from './ui/input'
+import { Separator } from './ui/separator'
 
 interface TaskAppProps {
   email: string
@@ -47,23 +52,18 @@ export function TaskApp({ email, onLoggedOut }: TaskAppProps) {
   }
 
   return (
-    <div className="min-h-dvh bg-white text-black">
+    <div className="min-h-dvh">
       <div className="mx-auto flex min-h-dvh max-w-xl flex-col px-6 py-10 sm:px-8">
-        <header className="flex items-center justify-between gap-4 border-b border-black/10 pb-6">
-          <span className="text-lg font-extrabold tracking-tight text-brand-blue">Tasks</span>
+        <header className="flex items-center justify-between gap-4 pb-6">
+          <span className="text-lg font-extrabold tracking-tight text-primary">Tasks</span>
           <div className="flex items-center gap-4">
-            <span className="text-sm text-black/60">{email}</span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="text-black/60 hover:text-brand-blue"
-              onClick={handleLogout}
-            >
+            <span className="text-xs text-muted-foreground">{email}</span>
+            <Button type="button" variant="link" size="sm" className="px-0" onClick={handleLogout}>
               Log out
             </Button>
           </div>
         </header>
+        <Separator />
 
         <form onSubmit={handleCreate} className="mt-6 flex gap-3">
           <Input
@@ -79,77 +79,49 @@ export function TaskApp({ email, onLoggedOut }: TaskAppProps) {
           </Button>
         </form>
 
-        {loading && <p className="mt-8 text-sm text-black/60">Loading…</p>}
+        {loading && !data && <p className="mt-8 text-xs text-muted-foreground">Loading…</p>}
 
         {error && (
-          <div
-            role="alert"
-            className="mt-8 rounded-lg border border-brand-red/30 bg-brand-red/5 px-4 py-3 text-sm font-medium text-brand-red"
-          >
-            Could not load tasks.
-          </div>
+          <Alert variant="destructive" className="mt-8">
+            <AlertDescription>Could not load tasks.</AlertDescription>
+          </Alert>
         )}
 
         {data && data.tasks.length > 0 && (
           <ul className="mt-8 flex flex-col gap-2">
             {data.tasks.map((task) => (
-              <li
-                key={task.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-black/10 px-4 py-3"
-              >
-                <label className="flex flex-1 items-center gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={task.done}
-                    onChange={() => handleToggle(task)}
-                    className="h-4 w-4 accent-brand-blue"
-                  />
-                  <span className={task.done ? 'text-black/40 line-through' : 'text-black'}>
-                    {task.title}
-                  </span>
-                </label>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-black/40 hover:text-brand-red"
-                  onClick={() => handleDelete(task)}
-                >
-                  Delete
-                </Button>
+              <li key={task.id}>
+                <Card size="sm">
+                  <CardContent className="flex items-center justify-between gap-3">
+                    <label className="flex flex-1 items-center gap-3 text-xs">
+                      <Checkbox checked={task.done} onCheckedChange={() => handleToggle(task)} />
+                      <span className={task.done ? 'text-muted-foreground line-through' : ''}>
+                        {task.title}
+                      </span>
+                    </label>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => handleDelete(task)}
+                    >
+                      Delete
+                    </Button>
+                  </CardContent>
+                </Card>
               </li>
             ))}
           </ul>
         )}
 
         {data && data.tasks.length === 0 && (
-          <div className="mt-8 flex flex-col items-center gap-3 rounded-xl border border-dashed border-black/15 px-6 py-14 text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-blue/10 text-brand-blue">
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="22"
-                height="22"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <line x1="8" y1="6" x2="20" y2="6" />
-                <line x1="8" y1="12" x2="20" y2="12" />
-                <line x1="8" y1="18" x2="20" y2="18" />
-                <circle cx="4" cy="6" r="1" />
-                <circle cx="4" cy="12" r="1" />
-                <circle cx="4" cy="18" r="1" />
-              </svg>
-            </div>
-            <p className="text-base font-semibold text-black">No tasks yet</p>
-            <p className="max-w-[26ch] text-sm text-black/60">
+          <Alert className="mt-8 items-center py-10 text-center [&>svg]:static [&>svg]:mx-auto [&>svg]:mb-1">
+            <ListTodoIcon />
+            <AlertTitle className="justify-center text-sm">No tasks yet</AlertTitle>
+            <AlertDescription>
               Add your first task above to start tracking your work.
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
         )}
       </div>
     </div>
