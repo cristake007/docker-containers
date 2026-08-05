@@ -1,10 +1,10 @@
 @import 'tailwindcss';
 
+/* The auth screen's palette is fixed by brand guidelines: this blue, this
+   red, plus white and black -- no ad hoc grays. */
 @theme {
   --color-brand-blue: #164194;
   --color-brand-red: #d41131;
-  --color-brand-ink: #0b1e3f;
-  --color-brand-mist: #f4f6fa;
 }
 
 :root {
@@ -36,4 +36,14 @@ body {
 
 button {
   font: inherit;
+}
+
+a,
+button:not(:disabled),
+[role='button'] {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
 }

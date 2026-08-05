@@ -1,13 +1,49 @@
 const apiBaseUrl = import.meta.env.VITE_API_URL ?? '/api'
 
-export class AuthError extends Error {}
+// Field-level errors are keyed by our form's own field names (`email` /
+// `password`), not the API's property paths -- the register endpoint
+// reports password problems against `plainPassword`, which we normalize
+// here so the same UI code works for both login and register violations.
+const PROPERTY_PATH_TO_FIELD: Record<string, string> = {
+  email: 'email',
+  password: 'password',
+  plainPassword: 'password',
+}
 
-async function parseErrorMessage(response: Response): Promise<string> {
+export class AuthError extends Error {
+  fieldErrors: Record<string, string>
+
+  constructor(message: string, fieldErrors: Record<string, string> = {}) {
+    super(message)
+    this.fieldErrors = fieldErrors
+  }
+}
+
+interface Violation {
+  propertyPath: string
+  message: string
+}
+
+async function parseError(response: Response): Promise<AuthError> {
   try {
     const body = await response.json()
-    return body.message ?? body['hydra:description'] ?? `Request failed (${response.status})`
+
+    if (Array.isArray(body.violations)) {
+      const fieldErrors: Record<string, string> = {}
+      for (const violation of body.violations as Violation[]) {
+        const field = PROPERTY_PATH_TO_FIELD[violation.propertyPath]
+        if (field) {
+          fieldErrors[field] = violation.message
+        }
+      }
+      const message = (body.violations as Violation[]).map((v) => v.message).join(' ')
+      return new AuthError(message || 'Please fix the errors below.', fieldErrors)
+    }
+
+    const message = body.message ?? body['hydra:description'] ?? `Request failed (${response.status})`
+    return new AuthError(message)
   } catch {
-    return `Request failed (${response.status})`
+    return new AuthError(`Request failed (${response.status})`)
   }
 }
 
@@ -20,7 +56,7 @@ export async function register(email: string, password: string): Promise<void> {
   })
 
   if (!response.ok) {
-    throw new AuthError(await parseErrorMessage(response))
+    throw await parseError(response)
   }
 }
 
@@ -33,7 +69,7 @@ export async function login(email: string, password: string): Promise<void> {
   })
 
   if (!response.ok) {
-    throw new AuthError(await parseErrorMessage(response))
+    throw await parseError(response)
   }
 }
 

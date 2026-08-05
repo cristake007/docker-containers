@@ -8,7 +8,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-brand-red text-white hover:bg-[#b30e29]',
+        primary:
+          'bg-brand-red text-white hover:bg-[color-mix(in_srgb,var(--color-brand-red)_85%,black)]',
         ghost: 'text-brand-blue hover:underline underline-offset-4',
       },
       size: {
