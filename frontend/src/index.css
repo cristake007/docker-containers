@@ -1,3 +1,12 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-brand-blue: #164194;
+  --color-brand-red: #d41131;
+  --color-brand-ink: #0b1e3f;
+  --color-brand-mist: #f4f6fa;
+}
+
 :root {
   --text: #1a1a1a;
   --bg: #fff;
@@ -13,6 +22,12 @@
     --text: #e5e5e5;
     --bg: #16171d;
   }
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {

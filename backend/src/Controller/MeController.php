@@ -20,11 +20,14 @@ final class MeController
     #[Route('/api/me', name: 'api_me', methods: ['GET'])]
     public function __invoke(): JsonResponse
     {
+        // Always 200: this endpoint is polled unconditionally on every page
+        // load as a session probe, not used as an authorization gate, so
+        // "not logged in" is a normal outcome rather than an error response.
         $user = $this->security->getUser();
         if (!$user instanceof User) {
-            return new JsonResponse(['message' => 'Not authenticated.'], 401);
+            return new JsonResponse(['authenticated' => false]);
         }
 
-        return new JsonResponse(['email' => $user->getEmail()]);
+        return new JsonResponse(['authenticated' => true, 'email' => $user->getEmail()]);
     }
 }

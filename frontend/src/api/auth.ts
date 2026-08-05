@@ -49,5 +49,6 @@ export async function me(): Promise<{ email: string } | null> {
   if (!response.ok) {
     return null
   }
-  return response.json()
+  const body = await response.json()
+  return body.authenticated ? { email: body.email } : null
 }
