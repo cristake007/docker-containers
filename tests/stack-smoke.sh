@@ -93,7 +93,11 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-wait_for_http "$BASE_URL/api/me" 401
+wait_for_http "$BASE_URL/api/me" 200
+
+ANONYMOUS_AUTHENTICATED="$(curl -sf "$BASE_URL/api/me" | json_get "d['authenticated']")"
+[ "$ANONYMOUS_AUTHENTICATED" = "False" ] \
+    || { echo "anonymous /api/me unexpectedly reported authenticated: $ANONYMOUS_AUTHENTICATED" >&2; exit 1; }
 
 ALICE_JAR="$(mktemp)"
 BOB_JAR="$(mktemp)"

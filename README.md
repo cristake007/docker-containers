@@ -3,9 +3,8 @@
 A small full-stack reference app: Symfony backend exposing a GraphQL API
 (via [API Platform](https://api-platform.com/)) backed by Postgres, JWT
 authentication delivered as an httpOnly cookie, and a React + TypeScript
-frontend (Vite + Apollo Client). The demo domain is a per-user task list,
-just enough to prove the whole chain works: register, log in, create/toggle/
-delete your own tasks, and never see anyone else's.
+frontend with a shadcn/ui authenticated application shell. The backend's
+per-user task domain remains as a compact end-to-end authorization example.
 
 ## Architecture
 
@@ -39,8 +38,8 @@ directly. This keeps every container minimal and puts exactly one thing
   extension (`App\Doctrine\CurrentUserTaskExtension`) that filters every
   underlying query -- so it's not just "denied at the edge", other users'
   rows are never fetched at all.
-- **Frontend**: React 19 + TypeScript, Vite, Apollo Client
-  (`credentials: 'include'`, no token handling in JS).
+- **Frontend**: React 19 + TypeScript, Vite, shadcn/ui with Base UI. Auth
+  requests use `credentials: 'include'`, with no token handling in JS.
 
 ## Prerequisites
 
@@ -174,7 +173,7 @@ production build, `npm audit`) -- see `.github/workflows/`.
 
 ```
 backend/            Symfony app (API Platform, Doctrine, JWT)
-frontend/            React + TypeScript app (Vite, Apollo Client)
+frontend/            React + TypeScript app (Vite, shadcn/ui)
 docker/backend/      Backend Dockerfile + PHP-FPM config
 docker/frontend/      Frontend Dockerfile (dev server + static export stages)
 deploy/nginx/        Host-nginx config templates (not run by Compose)

@@ -78,14 +78,14 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
       <div className="relative z-10 flex items-center justify-center px-6 py-10 sm:px-8 md:shadow-[8px_0_24px_-8px_rgb(0_0_0_/_0.25)] lg:px-10">
         <div className="w-full max-w-xs">
           <span className="mb-8 block text-xl font-extrabold tracking-tight text-primary md:hidden">
-            Tasks
+            Workspace
           </span>
 
           <h1 className="text-2xl font-bold">{mode === 'login' ? 'Sign in' : 'Create account'}</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {mode === 'login'
               ? 'Welcome back. Enter your details to continue.'
-              : 'Set up an account to start tracking work.'}
+              : 'Set up an account to enter your workspace.'}
           </p>
 
           {formError && (
@@ -158,10 +158,10 @@ export function AuthView({ onAuthenticated }: AuthViewProps) {
           className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:radial-gradient(circle_at_1px_1px,white_1px,transparent_0)] [background-size:28px_28px]"
         />
         <span className="relative text-4xl font-extrabold tracking-tight text-primary-foreground lg:text-5xl">
-          Tasks
+          Workspace
         </span>
         <p className="relative max-w-[22ch] text-lg text-primary-foreground/80">
-          Keep your work moving.
+          Everything starts here.
         </p>
       </div>
     </div>

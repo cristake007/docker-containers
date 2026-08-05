@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import './App.css'
 import { me } from './api/auth'
+import { AuthenticatedApp } from './components/AuthenticatedApp'
 import { AuthView } from './components/AuthView'
-import { TaskApp } from './components/TaskApp'
 
 function App() {
   const [email, setEmail] = useState<string | null>(null)
@@ -19,13 +19,13 @@ function App() {
   }
 
   return (
-    <main className="app">
+    <div className="app">
       {email ? (
-        <TaskApp email={email} onLoggedOut={() => setEmail(null)} />
+        <AuthenticatedApp email={email} onLoggedOut={() => setEmail(null)} />
       ) : (
         <AuthView onAuthenticated={setEmail} />
       )}
-    </main>
+    </div>
   )
 }
 
