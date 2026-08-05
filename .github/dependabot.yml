@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # Actions are pinned by commit SHA with a "# vX.Y.Z" comment (see
+  # AUDIT_FINDINGS.md F-011); Dependabot understands that convention and
+  # keeps both the SHA and the comment in sync.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Base images are pinned by digest with a "tag@sha256:..." reference (see
+  # AUDIT_FINDINGS.md F-011); Dependabot updates the digest when the tag
+  # moves, same idea as the actions above.
+  - package-ecosystem: "docker"
+    directory: "/docker/backend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "docker"
+    directory: "/docker/frontend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "composer"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"

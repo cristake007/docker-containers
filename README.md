@@ -176,6 +176,40 @@ docker compose -f compose.yaml run --rm backend php bin/console doctrine:migrati
 docker compose -f compose.yaml run --rm backend php bin/console app:bootstrap-admin --no-interaction
 ```
 
+### Deploying from published images (no git checkout needed)
+
+Every push to `main` (and every `v*` tag) publishes both prod artifacts to
+GHCR via `.github/workflows/publish-images.yml`, using the repo's own
+`GITHUB_TOKEN` -- no extra secrets to set up. **First time**: GHCR packages
+default to private even on a public repo, so make them public (or configure
+`docker login ghcr.io` with a `read:packages` token on whatever pulls them)
+from the package settings after the first successful run.
+
+A prod host only needs `compose.yaml` and a real `.env` -- not the rest of
+the repo:
+
+```bash
+docker compose -f compose.yaml pull                 # instead of --build
+docker compose -f compose.yaml up -d
+```
+
+The frontend image (`ghcr.io/cristake007/docker-containers-frontend`) has no
+runtime -- same as the local `export` target, it's `FROM scratch` and
+contains only the built `dist/` files (see `docker/frontend/Dockerfile`).
+Extract them to wherever host nginx serves from:
+
+```bash
+docker pull ghcr.io/cristake007/docker-containers-frontend:latest
+id=$(docker create ghcr.io/cristake007/docker-containers-frontend:latest)
+docker cp "$id:/." ./frontend/dist
+docker rm "$id"
+```
+
+This publish workflow does not currently wait for the test workflows below
+to pass first -- it runs independently on every push to `main`. If you want
+a stronger "never publish a red build" guarantee, gate it behind them
+(e.g. a `workflow_run` trigger).
+
 ## nginx setup
 
 Copy the example matching your environment into your host nginx config,
@@ -207,7 +241,10 @@ sh tests/stack-smoke.sh     # application-level: the real dev and prod nginx exa
 ```
 
 CI runs both, plus a separate frontend job (lint, typecheck, Vitest,
-production build, `npm audit`) -- see `.github/workflows/`.
+production build, `npm audit`) -- see `.github/workflows/`. A separate
+workflow, `publish-images.yml`, builds and pushes the prod images to GHCR
+(see [Deploying from published images](#deploying-from-published-images-no-git-checkout-needed)
+above) -- it isn't a test and doesn't gate on the others passing.
 
 ## Repository layout
 
@@ -220,4 +257,6 @@ deploy/nginx/        Host-nginx config templates (not run by Compose)
 compose.yaml          Production: db + backend
 compose.override.yaml Development additions: frontend, published ports, bind mounts
 tests/                Smoke tests (container-level and application-level)
+.github/workflows/    CI (lint/test/smoke) + publish-images.yml (GHCR)
+.github/dependabot.yml Weekly update PRs for pinned images, actions, and dependencies
 ```

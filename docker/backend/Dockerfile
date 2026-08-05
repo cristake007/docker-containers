@@ -29,6 +29,15 @@ EXPOSE 9000
 # newly forked master/workers.
 CMD ["php-fpm", "-F"]
 
+# Neither cgi-fcgi nor nc exist in this base image, so this can't speak
+# FastCGI or do a plain TCP probe the usual way -- php itself always does,
+# so a raw socket connect from a one-line PHP script is what's available.
+# This only proves the FastCGI socket is accepting connections, not that
+# the application behind it is correct -- that's what the smoke tests are
+# for (see tests/).
+HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \
+    CMD php -r 'exit(@fsockopen("127.0.0.1", 9000, $e, $s, 2) ? 0 : 1);'
+
 FROM base AS dev
 
 ENV APP_ENV=dev \

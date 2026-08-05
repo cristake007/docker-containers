@@ -4,5 +4,12 @@
 .vscode
 backend/vendor
 backend/var
+# Test-only: dev needs these too, but dev bind-mounts ./backend over the
+# image at runtime (see compose.override.yaml), so excluding them from the
+# build context only ever affects what actually ships in the prod image.
+backend/tests
+backend/phpunit.dist.xml
+backend/.env.test
+backend/bin/phpunit
 frontend/node_modules
 frontend/dist

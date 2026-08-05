@@ -20,7 +20,14 @@ services:
       - no-new-privileges:true
 
   backend:
-    image: symfony-backend:prod
+    # A real registry reference, not just a local tag: `docker compose -f
+    # compose.yaml up --build` still builds locally same as always (and
+    # tags the result with this name), but a prod host with no git checkout
+    # at all can now instead run `docker compose -f compose.yaml pull` to
+    # fetch the image .github/workflows/publish-images.yml publishes on
+    # every push to main. Override IMAGE_TAG to pin a specific build
+    # instead of always floating on latest.
+    image: ghcr.io/cristake007/docker-containers-backend:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: docker/backend/Dockerfile
