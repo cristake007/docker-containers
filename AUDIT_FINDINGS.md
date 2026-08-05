@@ -141,3 +141,139 @@ Runtime and build inputs use mutable tags such as `postgres:17-alpine`, `php:*`,
 Impact: the same source commit can build or execute different third-party code later without any repository change or review. A compromised or unexpectedly changed upstream tag can enter production images or CI with the repository's trust and credentials.
 
 Recommendation: pin container images by digest and GitHub Actions by reviewed full commit SHA, then update them through an explicit dependency-update process.
+
+### F-012 — A partial JWT keypair cannot self-heal and existing keys are not validated
+
+- Severity: Medium
+- Files: `docker/backend/entrypoint.sh`, `backend/config/packages/lexik_jwt_authentication.yaml`, `compose.yaml`
+- Category: Authentication availability / key lifecycle
+
+The entrypoint attempts key generation when either `private.pem` or `public.pem` is missing, but invokes `lexik:jwt:generate-keypair --skip-if-exists`. The exact locked Lexik JWT bundle version is 3.2.0; its command considers the pair to “already exist” when either file exists and returns success without creating the missing half. The following `chmod`/`chown` then encounters the absent file and aborts startup because the script uses `set -e`.
+
+The entrypoint also treats any two existing files as valid. It does not verify that they parse, match one another, or that the configured passphrase can decrypt the private key.
+
+Impact: an interrupted first boot, accidental deletion of one key, key corruption, a passphrase change without coordinated key rotation, or a mismatched restored volume can leave production unable to authenticate and unable to repair itself automatically. The failure message may point at file permissions rather than the underlying keypair state.
+
+Recommendation: manage the keypair atomically. If either file is absent, fail with an explicit recovery instruction or regenerate both under an intentional rotation policy; never combine partial-pair detection with `--skip-if-exists`. Validate the complete pair and passphrase before starting PHP-FPM.
+
+### F-013 — The supplied production Nginx configuration is not tested by CI
+
+- Severity: Medium
+- Files: `deploy/nginx/app.dev.conf.example`, `deploy/nginx/app.prod.conf.example`, `tests/stack-smoke.sh`, `.github/workflows/backend-container.yml`, `.github/workflows/stack-smoke.yml`
+- Category: Verification gap / deployment correctness
+
+No workflow path filter includes `deploy/nginx/**`. The stack smoke test creates a separate simplified Nginx configuration at runtime rather than loading or deriving from either checked-in example.
+
+Impact: production routing and transport defects can be merged without running any relevant workflow. This is demonstrated by the current successful stack workflow despite the plaintext-HTTP production block and the missing API Platform asset route identified in F-003 and F-008.
+
+Recommendation: make Nginx example changes trigger CI, syntax-test the actual checked-in configuration through a deterministic template step, and exercise the HTTP-to-HTTPS behavior plus every public route family that the examples claim to support.
+
+### F-014 — Security-critical backend behavior lacks code-level automated tests
+
+- Severity: Medium
+- Files: `backend/composer.json`, `backend/src/**`, `frontend/src/components/AuthView.test.tsx`, `frontend/src/components/AuthenticatedApp.test.tsx`, `tests/backend-smoke.sh`, `tests/stack-smoke.sh`
+- Category: Test coverage / regression risk
+
+The repository has useful shell smoke tests, but no backend PHPUnit/API Platform functional test suite. Validators, processors, security expressions, the Doctrine ownership extension, registration edge cases, and key lifecycle behavior are not independently tested. Frontend tests cover mode switching and a successful navigation/logout path but omit API and network failures.
+
+The shell smoke test does not cover empty production secrets, email case normalization, invalid-login throttling, unauthenticated GraphQL requests, another user's update attempt, logout failure, session-probe failure, API Platform assets, or the actual production Nginx file.
+
+Impact: security and authorization behavior is concentrated in configuration and framework integration points where small changes can silently alter semantics. Happy-path CI can remain green while meaningful failure paths regress.
+
+Recommendation: add focused backend functional tests for every public operation and authorization boundary, plus frontend failure-path tests. Keep the end-to-end shell smoke test as a separate integration layer rather than using it as the only proof.
+
+### F-015 — Session probing treats outages and authentication failures as the same state
+
+- Severity: Medium
+- Files: `frontend/src/App.tsx`, `frontend/src/api/auth.ts`
+- Category: Session correctness / resilience
+
+`me()` returns `null` for every non-success HTTP status, including 500 and 502, rather than only for an unauthenticated response. A network rejection is not caught by `App`; the promise still reaches `finally`, removes the loading state, and can leave an unhandled rejection while rendering the login view.
+
+Impact: a reverse-proxy or backend outage is presented as “logged out” even though a valid JWT cookie may still exist. Users may enter credentials repeatedly during an outage, and the application gives no retry or service-error state.
+
+Recommendation: define a precise `/api/me` contract, distinguish unauthenticated from unavailable/error responses, catch transport failures, and render a retryable error state without discarding the known session state.
+
+### F-016 — Sidebar persistence writes a cookie that is never read
+
+- Severity: Low
+- File: `frontend/src/components/ui/sidebar.tsx`
+- Category: Dead behavior / unnecessary client state
+
+The sidebar writes `sidebar_state` to `document.cookie` whenever it is toggled, but no repository code reads that cookie and `SidebarProvider` is always created with its default `defaultOpen=true`. Reloading therefore resets the sidebar despite the claimed persistence mechanism.
+
+Impact: the feature does not work, and every request unnecessarily carries a client UI preference cookie. The cookie is also created without explicit `SameSite` or `Secure` attributes, although its value is not sensitive.
+
+Recommendation: use local storage for this client-only preference, or intentionally read and apply the cookie. Remove the write if persistence is not required.
+
+### F-017 — Task mutation ownership expressions fail open when prior state is absent
+
+- Severity: Low
+- File: `backend/src/Entity/Task.php`
+- Category: Authorization hardening / ambiguous framework dependency
+
+Update and delete authorize with `(previous_object === null or previous_object.getOwner() == user)`. The current Doctrine query extension prevents the observed cross-user path in the smoke test, so this is not a demonstrated bypass in the present execution path. However, the expression itself grants access when the framework does not provide a prior object, making authorization depend on an implicit lifecycle assumption and a second mechanism remaining correctly registered.
+
+Impact: a processor/provider change, framework behavior change, or future operation that lacks `previous_object` can turn a defense-in-depth expression into a fail-open authorization rule.
+
+Recommendation: make the mutation rule fail closed by requiring a non-null prior object owned by the current user, and add explicit cross-user update and delete tests.
+
+### F-018 — Production GraphQL schema discovery is not explicitly restricted
+
+- Severity: Low
+- Files: `backend/config/packages/api_platform.yaml`, `backend/config/packages/security.yaml`
+- Category: Information exposure / production hardening
+
+GraphiQL is disabled when kernel debugging is off, but GraphQL introspection is not explicitly disabled or access-controlled in production. The general `/api` firewall authenticates opportunistically and operation-level rules protect data operations; there is no explicit production policy for schema discovery.
+
+Impact: an unauthenticated client may enumerate the complete GraphQL schema, mutations, object names, and argument structure. This does not grant data access by itself, but it reduces discovery cost for attackers and conflicts with a least-information production posture when public schema discovery is unnecessary.
+
+Recommendation: decide and document whether public introspection is intentional. Disable it in production or require suitable authentication if the schema is private.
+
+### F-019 — The end-to-end test leaves JWT cookie jars in temporary storage
+
+- Severity: Low
+- File: `tests/stack-smoke.sh`
+- Category: Test hygiene / credential handling
+
+The script creates `ALICE_JAR` and `BOB_JAR` with `mktemp`, stores authenticated JWT cookies in them, and never removes those files in its cleanup function.
+
+Impact: tokens remain on a developer or CI host until external temporary-file cleanup or runner destruction. The current tokens are short-lived test credentials, so the immediate severity is low, but secret-bearing test artifacts should not be deliberately abandoned.
+
+Recommendation: create all temporary files under a private temporary directory with a restrictive `umask`, and remove the directory from the existing trap on every exit path.
+
+### F-020 — Brand colors are duplicated as raw values across the component layer
+
+- Severity: Low
+- Files: `frontend/src/index.css`, `frontend/src/components/AppSidebar.tsx`, `frontend/src/components/AuthenticatedApp.tsx`, `frontend/src/components/NavUser.tsx`, `frontend/src/components/ui/sidebar.tsx`, `frontend/src/components/ui/tooltip.tsx`
+- Category: Duplication / maintainability
+
+The stylesheet defines semantic primary/destructive variables, but application and generated-style components repeatedly embed `#164194` and `#D41131` in long utility strings. The same hover, active, and icon color logic is duplicated in multiple menu items.
+
+Impact: a brand adjustment requires coordinated edits across unrelated files and makes visual inconsistencies likely. Repeated utility fragments also obscure the actual interaction semantics.
+
+Recommendation: express brand states through semantic theme tokens or reusable variants, then remove component-level literal colors and duplicated menu-state class strings.
+
+### F-021 — The Vitest configuration is excluded from TypeScript project checking
+
+- Severity: Low
+- Files: `frontend/tsconfig.node.json`, `frontend/tsconfig.json`, `frontend/vitest.config.ts`
+- Category: Build configuration / verification gap
+
+`tsconfig.node.json` includes only `vite.config.ts`, and the root project references only the app and that node configuration. `npm run typecheck` therefore does not type-check `vitest.config.ts` as part of the configured TypeScript project.
+
+Impact: invalid configuration API usage or Node-side type regressions in the test configuration can evade the dedicated type-check step and surface only when Vitest happens to execute the affected path.
+
+Recommendation: include both Vite and Vitest configuration files in the node project, or create a shared configuration project that covers all TypeScript build/test tooling.
+
+## Open product/security ambiguity
+
+### A-001 — Public self-registration may conflict with the intended deployment model
+
+- Files: `backend/src/Entity/User.php`, `backend/config/packages/security.yaml`, `frontend/src/components/AuthView.tsx`
+
+Anyone reaching the application can create an account and immediately receives effective `ROLE_USER` access. There is no invitation, approval, email verification, domain restriction, activation state, or administrator gate.
+
+This is correct for a public self-service task application, but it is a high-impact access-control defect if the intended product is private or internal. The repository does not state this decision clearly enough to resolve the ambiguity.
+
+Required decision: explicitly classify the application as public self-registration or restricted membership, then enforce and test that policy. Registration abuse controls from F-005 remain necessary in either model.
