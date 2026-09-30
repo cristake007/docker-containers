@@ -6,7 +6,7 @@ ARG PHP_VERSION=8.5.9
 # build the same third-party code later, not silently pull in whatever a
 # tag happens to point to by then (see AUDIT_FINDINGS.md F-011). Bumping
 # PHP_VERSION or either digest is a deliberate, reviewed change.
-FROM mlocati/php-extension-installer:2@sha256:b6d3fa381b9ba5cf051117c1c601d6a523b590e534bf3d56eb4fbe352949c138 AS extension-installer
+FROM mlocati/php-extension-installer:2@sha256:1afade3e29cfc97362cf5885e5ac333bf2faab1146cb28ebbb59b17e68f87e88 AS extension-installer
 
 FROM php:${PHP_VERSION}-fpm-trixie@sha256:227ae08b7b6c5cbec7d4048ed7e45cd608c323d151573f83c0e7ec06c5787b79 AS base
 
